@@ -1,0 +1,54 @@
+/* Global design tokens */
+:root{
+  --bg: #f8fafc; /* light page background */
+  --panel: #ffffff; /* cards */
+  --text: #0f1724; /* primary text */
+  --muted: #6b7280;
+  --primary: #2563eb;
+}
+
+/* Dark theme variables */
+.dark{
+  --bg: #071127;
+  --panel: #061024;
+  --text: #e6eef8;
+  --muted: #9ca3af;
+  --primary: #60a5fa;
+}
+
+html, body, #root{
+  height: 100%;
+  background-color: var(--bg);
+  color: var(--text);
+  font-family: Cairo, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+}
+
+/* Small helpers to override common Tailwind gray classes in dark mode */
+.dark .bg-gray-800{ background-color: #081425 !important; }
+.dark .bg-gray-700{ background-color: #0b1b2b !important; }
+.dark .border-gray-700{ border-color: rgba(255,255,255,0.06) !important; }
+.dark .text-gray-200{ color: var(--text) !important; }
+.dark .text-gray-400{ color: var(--muted) !important; }
+.dark .bg-blue-600{ background-color: var(--primary) !important; }
+.dark .hover\:bg-gray-700:hover{ background-color: #0b1b2b !important; }
+
+/* Ensure table backgrounds and prints look OK */
+.dark table, .dark th, .dark td { color: var(--text) !important; }
+
+/* Make buttons and cards use panel color when appropriate */
+.card{
+  background: var(--panel);
+}
+
+/* Utility for subtle separators */
+.separator{ border-color: rgba(0,0,0,0.08); }
+.dark .separator{ border-color: rgba(255,255,255,0.06); }
+
+/* Ensure inputs have readable bg/text */
+input, textarea, select {
+  background: var(--panel);
+  color: var(--text);
+}
+
+/* Small RTL tweaks preserved */
+body { direction: rtl; }
