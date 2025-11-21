@@ -472,16 +472,32 @@ const WorkerPaymentAddModal: React.FC<WorkerPaymentAddModalProps> = ({ isOpen, o
     const [selectedWorkerIds, setSelectedWorkerIds] = useState<string[]>([]);
     const [commonDate, setCommonDate] = useState(new Date().toISOString().split('T')[0]);
     const [commonNotes, setCommonNotes] = useState('');
+    const [searchTerm, setSearchTerm] = useState('');
 
     const availableWorkers = useMemo(() => 
         activeWorkers.filter(w => !existingWorkerIds.includes(w.id)),
         [activeWorkers, existingWorkerIds]
     );
 
+    const filteredWorkers = useMemo(() => {
+        if (!searchTerm.trim()) return availableWorkers;
+        return availableWorkers.filter(w => 
+            w.name.toLowerCase().includes(searchTerm.toLowerCase())
+        );
+    }, [availableWorkers, searchTerm]);
+
     const toggleWorker = (workerId: string) => {
         setSelectedWorkerIds(prev =>
             prev.includes(workerId) ? prev.filter(id => id !== workerId) : [...prev, workerId]
         );
+    };
+
+    const toggleSelectAll = () => {
+        if (selectedWorkerIds.length === filteredWorkers.length && filteredWorkers.length > 0) {
+            setSelectedWorkerIds([]);
+        } else {
+            setSelectedWorkerIds(filteredWorkers.map(w => w.id));
+        }
     };
 
     const handleSubmit = (e: React.FormEvent) => {
@@ -503,10 +519,34 @@ const WorkerPaymentAddModal: React.FC<WorkerPaymentAddModalProps> = ({ isOpen, o
         <Modal isOpen={isOpen} onClose={onClose} title={`إضافة دفعات لشهر ${monthName} ${year}`} size="lg">
             <form onSubmit={handleSubmit} className="space-y-4">
                 <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">اختر العمال</label>
+                    <div className="flex justify-between items-center mb-2">
+                        <label className="block text-sm font-medium text-gray-700">اختر العمال</label>
+                        {filteredWorkers.length > 0 && (
+                            <button
+                                type="button"
+                                onClick={toggleSelectAll}
+                                className="text-sm text-blue-600 hover:text-blue-700 font-medium"
+                            >
+                                {selectedWorkerIds.length === filteredWorkers.length && filteredWorkers.length > 0 ? 'إلغاء الكل' : 'تحديد الكل'}
+                            </button>
+                        )}
+                    </div>
+                    <div className="mb-2">
+                        <input
+                            type="text"
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            placeholder="بحث عن عامل..."
+                            className="w-full bg-white border border-gray-300 p-2 rounded-md text-sm focus:ring-2 focus:ring-blue-500"
+                        />
+                    </div>
                     <div className="max-h-60 overflow-y-auto border rounded-md p-2 space-y-1">
-                        {availableWorkers.length > 0 ? (
-                            availableWorkers.map(worker => (
+                        {availableWorkers.length === 0 ? (
+                            <p className="text-center text-gray-500 py-4">جميع العمال لديهم دفعات مسجلة لهذا الشهر</p>
+                        ) : filteredWorkers.length === 0 ? (
+                            <p className="text-center text-gray-500 py-4">لا توجد نتائج</p>
+                        ) : (
+                            filteredWorkers.map(worker => (
                                 <label key={worker.id} className="flex items-center gap-2 p-2 hover:bg-gray-50 rounded cursor-pointer">
                                     <input
                                         type="checkbox"
@@ -517,8 +557,6 @@ const WorkerPaymentAddModal: React.FC<WorkerPaymentAddModalProps> = ({ isOpen, o
                                     <span>{worker.name}</span>
                                 </label>
                             ))
-                        ) : (
-                            <p className="text-center text-gray-500 py-4">جميع العمال لديهم دفعات مسجلة لهذا الشهر</p>
                         )}
                     </div>
                     {selectedWorkerIds.length > 0 && (
@@ -571,6 +609,8 @@ interface WorkerPaymentEditModalProps {
 
 const WorkerPaymentEditModal: React.FC<WorkerPaymentEditModalProps> = ({ isOpen, onClose, onSave, payments, workersById }) => {
     const [formData, setFormData] = useState<{ [workerId: string]: { date: string; notes: string } }>({});
+    const [bulkDate, setBulkDate] = useState('');
+    const [bulkNotes, setBulkNotes] = useState('');
 
     React.useEffect(() => {
         if (isOpen && payments.length > 0) {
@@ -589,11 +629,26 @@ const WorkerPaymentEditModal: React.FC<WorkerPaymentEditModalProps> = ({ isOpen,
         }));
     };
 
+    const applyToAll = () => {
+        if (!bulkDate && !bulkNotes) return;
+        setFormData(prev => {
+            const updated = { ...prev };
+            Object.keys(updated).forEach(workerId => {
+                if (bulkDate) updated[workerId].date = bulkDate;
+                if (bulkNotes) updated[workerId].notes = bulkNotes;
+            });
+            return updated;
+        });
+        setBulkDate('');
+        setBulkNotes('');
+    };
+
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        const data = Object.entries(formData).map(([workerId, values]) => ({
+        const data = Object.entries(formData).map(([workerId, values]: [string, { date: string; notes: string }]) => ({
             workerId,
-            ...values
+            date: values.date,
+            notes: values.notes
         }));
         onSave(data);
     };
@@ -601,6 +656,40 @@ const WorkerPaymentEditModal: React.FC<WorkerPaymentEditModalProps> = ({ isOpen,
     return (
         <Modal isOpen={isOpen} onClose={onClose} title={`تعديل دفعات (${payments.length} عامل)`} size="lg">
             <form onSubmit={handleSubmit} className="space-y-4">
+                <div className="bg-blue-50 border border-blue-200 rounded-md p-3 mb-4">
+                    <h4 className="font-semibold text-blue-900 mb-2">تطبيق على الجميع</h4>
+                    <div className="grid grid-cols-2 gap-3">
+                        <div>
+                            <label className="block text-xs text-blue-700 mb-1">تاريخ القبض</label>
+                            <input
+                                type="date"
+                                value={bulkDate}
+                                onChange={(e) => setBulkDate(e.target.value)}
+                                className="w-full bg-white border border-blue-300 p-2 rounded-md text-sm"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-xs text-blue-700 mb-1">ملاحظات</label>
+                            <input
+                                type="text"
+                                value={bulkNotes}
+                                onChange={(e) => setBulkNotes(e.target.value)}
+                                className="w-full bg-white border border-blue-300 p-2 rounded-md text-sm"
+                            />
+                        </div>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={applyToAll}
+                        disabled={!bulkDate && !bulkNotes}
+                        className="mt-2 w-full bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-sm"
+                    >
+                        تطبيق على الجميع
+                    </button>
+                </div>
+                <div className="border-t pt-3">
+                    <h4 className="font-semibold text-gray-800 mb-2 text-sm">تعديل فردي</h4>
+                </div>
                 <div className="max-h-96 overflow-y-auto space-y-3">
                     {payments.map(payment => (
                         <div key={payment.id} className="border rounded-md p-3 bg-gray-50">
