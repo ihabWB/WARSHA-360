@@ -562,6 +562,24 @@ const generateDailySummaryReport = (context: ReportContext, filters: ReportFilte
     const summaryMap = new Map<string, any>();
     const notesMap = new Map<string, any[]>(); // لتخزين الملاحظات لكل عامل
 
+    // جمع كل الملاحظات للعمال المختارين (بما في ذلك أيام الغياب والتقبيضات)
+    if (showNotes) {
+        const workerIdsInReport = new Set(filteredRecords.map(r => r.workerId));
+        dailyRecords
+            .filter(r => workerIdsInReport.has(r.workerId) && r.notes && r.notes.trim())
+            .forEach(r => {
+                if (!notesMap.has(r.workerId)) {
+                    notesMap.set(r.workerId, []);
+                }
+                const hasPaymentNote = r.notes.includes('قبض شهر');
+                notesMap.get(r.workerId)?.push({
+                    date: r.date,
+                    notes: r.notes,
+                    hasPayment: hasPaymentNote
+                });
+            });
+    }
+
     filteredRecords.forEach(r => {
         const worker = workerMap.get(r.workerId);
         if (!worker) return;
@@ -587,19 +605,8 @@ const generateDailySummaryReport = (context: ReportContext, filters: ReportFilte
                 grossSalary: 0, 
                 netSalary: 0 
             });
-            notesMap.set(r.workerId, []);
         }
         const entry = summaryMap.get(r.workerId);
-        
-        // جمع الملاحظات - كل الملاحظات ونميز التي تحتوي على "قبض"
-        if (showNotes && r.notes && r.notes.trim()) {
-            const hasPaymentNote = r.notes.includes('قبض شهر');
-            notesMap.get(r.workerId)?.push({
-                date: r.date,
-                notes: r.notes,
-                hasPayment: hasPaymentNote
-            });
-        }
         
         if (r.status === 'present' || r.status === 'paid-leave') {
             if (salary.paymentType === 'hourly') {
@@ -724,6 +731,13 @@ const generateDailySummaryReport = (context: ReportContext, filters: ReportFilte
     summaryMap.forEach((data, workerId) => {
         workerMapForNotes.set(workerId, { id: workerId, name: data.workerName });
     });
+
+    // ترتيب الملاحظات حسب التاريخ (من الأحدث للأقدم)
+    if (showNotes) {
+        notesMap.forEach((notes, workerId) => {
+            notes.sort((a, b) => b.date.localeCompare(a.date));
+        });
+    }
 
     return {
         columns: [
