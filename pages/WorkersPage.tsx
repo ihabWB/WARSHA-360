@@ -13,20 +13,20 @@ const WorkersPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'active' | 'suspended'>('active');
   const [migrationDone, setMigrationDone] = useState(false);
 
-  // Migration: إضافة salaryHistory للعمال القدامى
+  // Migration: إضافة salaryHistory للعمال القدامى - يعمل مرة واحدة فقط
   useEffect(() => {
-    if (migrationDone || workers.length === 0) return;
+    const runMigration = async () => {
+      if (migrationDone || workers.length === 0) return;
 
-    const workersNeedingMigration = workers.filter(w => !w.salaryHistory || w.salaryHistory.length === 0);
-    
-    if (workersNeedingMigration.length > 0) {
-      console.log(`🔄 Migration: Found ${workersNeedingMigration.length} workers without salary history`);
+      const workersNeedingMigration = workers.filter(w => !w.salaryHistory || w.salaryHistory.length === 0);
       
-      const migrateWorkers = async () => {
-        for (const worker of workersNeedingMigration) {
-          try {
+      if (workersNeedingMigration.length > 0) {
+        console.log(`🔄 Migration: Found ${workersNeedingMigration.length} workers without salary history`);
+        
+        try {
+          for (const worker of workersNeedingMigration) {
             const initialSalaryEntry: SalaryHistoryEntry = {
-              effectiveDate: '2020-01-01', // تاريخ افتراضي قديم
+              effectiveDate: '2020-01-01',
               paymentType: worker.paymentType,
               dailyRate: worker.dailyRate || 0,
               monthlySalary: worker.monthlySalary || 0,
@@ -41,19 +41,17 @@ const WorkersPage: React.FC = () => {
               ...worker,
               salaryHistory: [initialSalaryEntry],
             });
-          } catch (err) {
-            console.error(`❌ Migration failed for worker ${worker.name}:`, err);
           }
+          console.log('✅ Migration completed');
+        } catch (err) {
+          console.error('❌ Migration failed:', err);
         }
-        console.log('✅ Migration completed');
-        setMigrationDone(true);
-      };
-      
-      migrateWorkers();
-    } else {
+      }
       setMigrationDone(true);
-    }
-  }, [workers, updateWorker, migrationDone]);
+    };
+    
+    runMigration();
+  }, []); // يعمل مرة واحدة فقط عند التحميل
 
   const activeWorkers = workers.filter(w => w.status === 'active');
   const suspendedWorkers = workers.filter(w => w.status === 'suspended');
