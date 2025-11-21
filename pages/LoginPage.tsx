@@ -32,9 +32,10 @@ const LoginPage: React.FC = () => {
     
     try {
       await login(email, password);
-      // Navigation will be handled by App.tsx based on isAuthenticated state
+      navigate('/select-kablan');
     } catch (err: any) {
       setError(err.message || 'البريد الإلكتروني أو كلمة المرور غير صحيحة');
+    } finally {
       setLoading(false);
     }
   };
@@ -136,9 +137,13 @@ const LoginPage: React.FC = () => {
           .eq('id', allowedOwner.id);
       }
       
-      // Navigation will be handled by App.tsx based on isAuthenticated state
-      // Close modal and let App redirect to appropriate page
-      setShowSignupModal(false);
+      if (preReg) {
+        // Pre-registered employee: redirect to dashboard
+        navigate('/dashboard');
+      } else {
+        // Allowed owner: redirect to create their kablan
+        navigate('/select-kablan');
+      }
     } catch (error: any) {
       if (error.message.includes('email-already-in-use')) {
         setSignupError('⚠️ هذا البريد مستخدم بالفعل. حاول تسجيل الدخول بدلاً من ذلك.');
