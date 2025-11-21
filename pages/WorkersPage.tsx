@@ -97,29 +97,38 @@ const WorkersPage: React.FC = () => {
 
   const handleSave = async (workerData: Omit<Worker, 'id' | 'salaryHistory'>, changeDetails: { effectiveDate: string; reason: string; changeType: 'from_date' | 'retroactive' }) => {
     try {
+      console.log('🔄 handleSave called with:', { workerData, changeDetails });
+      
       if (editingWorker) {
         const currentWorker = workers.find(w => w.id === editingWorker.id);
-        if (!currentWorker) return;
+        if (!currentWorker) {
+          console.error('❌ Worker not found');
+          return;
+        }
 
+        console.log('📋 Current worker:', currentWorker);
         let newHistory = [...(currentWorker.salaryHistory || [])];
+        console.log('📜 Current salary history:', newHistory);
 
         if (changeDetails.changeType === 'from_date') {
             // إذا كان هذا أول تعديل راتب (ما في salaryHistory)، نحتاج نضيف السجل القديم أولاً
             if (newHistory.length === 0) {
+                console.log('⚠️ No salary history found, creating base entry');
                 // نضيف سجل الراتب الحالي (القديم) بتاريخ أقدم من تاريخ التعديل
                 const oldestDate = changeDetails.effectiveDate > '2020-01-01' ? '2020-01-01' : '2000-01-01';
                 const oldSalaryEntry: SalaryHistoryEntry = {
                     effectiveDate: oldestDate,
                     paymentType: currentWorker.paymentType,
-                    dailyRate: currentWorker.dailyRate,
-                    monthlySalary: currentWorker.monthlySalary,
-                    hourlyRate: currentWorker.hourlyRate,
-                    overtimeSystem: currentWorker.overtimeSystem,
-                    divisionFactor: currentWorker.divisionFactor,
-                    overtimeRate: currentWorker.overtimeRate,
+                    dailyRate: currentWorker.dailyRate || 0,
+                    monthlySalary: currentWorker.monthlySalary || 0,
+                    hourlyRate: currentWorker.hourlyRate || 0,
+                    overtimeSystem: currentWorker.overtimeSystem || 'automatic',
+                    divisionFactor: currentWorker.divisionFactor || 8,
+                    overtimeRate: currentWorker.overtimeRate || 0,
                     notes: 'راتب أساسي (قبل التعديل)',
                 };
                 newHistory.push(oldSalaryEntry);
+                console.log('✅ Base entry added:', oldSalaryEntry);
             }
             
             const newSalaryEntry: SalaryHistoryEntry = {
@@ -134,9 +143,11 @@ const WorkersPage: React.FC = () => {
                 notes: changeDetails.reason,
             };
             
+            console.log('➕ Adding new salary entry:', newSalaryEntry);
             newHistory = newHistory.filter(e => e.effectiveDate !== newSalaryEntry.effectiveDate);
             newHistory.push(newSalaryEntry);
             newHistory.sort((a, b) => a.effectiveDate.localeCompare(b.effectiveDate));
+            console.log('📊 Updated salary history:', newHistory);
         
         } else { // 'retroactive'
             if (newHistory.length > 0) {
@@ -191,7 +202,9 @@ const WorkersPage: React.FC = () => {
                 overtimeRate: newHistory[0].overtimeRate,
             } : {}),
         };
+        console.log('💾 Saving updated worker:', updatedWorker);
         await updateWorker(updatedWorker);
+        console.log('✅ Worker updated successfully');
       } else {
         // Add new worker
         console.log('🔄 Adding new worker:', workerData);
