@@ -551,8 +551,8 @@ const generateDailyDetailedReport = (context: ReportContext, filters: ReportFilt
     };
 };
 
-const generateDailySummaryReport = (context: ReportContext, filters: ReportFilters): ReportData => {
-    const { dailyRecords, workers } = context;
+const generateDailySummaryReport = (context: ReportContext, filters: ReportFilters, showNotes = false): ReportData => {
+    const { dailyRecords, workers, workerPayments } = context;
     const { dateFrom, dateTo, workerIds } = filters;
 
     let filteredRecords = dailyRecords.filter(r => r.date >= dateFrom && r.date <= dateTo);
@@ -560,6 +560,7 @@ const generateDailySummaryReport = (context: ReportContext, filters: ReportFilte
 
     const workerMap = new Map(workers.map(w => [w.id, w]));
     const summaryMap = new Map<string, any>();
+    const notesMap = new Map<string, any[]>(); // لتخزين الملاحظات لكل عامل
 
     filteredRecords.forEach(r => {
         const worker = workerMap.get(r.workerId);
@@ -586,8 +587,19 @@ const generateDailySummaryReport = (context: ReportContext, filters: ReportFilte
                 grossSalary: 0, 
                 netSalary: 0 
             });
+            notesMap.set(r.workerId, []);
         }
         const entry = summaryMap.get(r.workerId);
+        
+        // جمع الملاحظات
+        if (showNotes && r.notes && r.notes.trim()) {
+            const payment = workerPayments?.find(p => p.workerId === r.workerId && p.date === r.date);
+            notesMap.get(r.workerId)?.push({
+                date: r.date,
+                notes: r.notes,
+                hasPayment: !!payment
+            });
+        }
         
         if (r.status === 'present' || r.status === 'paid-leave') {
             if (salary.paymentType === 'hourly') {
@@ -721,6 +733,7 @@ const generateDailySummaryReport = (context: ReportContext, filters: ReportFilte
             { header: 'صافي الراتب', accessor: 'netSalary' },
         ],
         data,
+        summary: showNotes ? { notesMap, workerMap: Array.from(summaryMap.entries()).map(([id, data]) => ({ id, name: data.workerName })) } : undefined,
         title: 'التقرير الملخص لليوميات'
     };
 };
@@ -1611,6 +1624,7 @@ export const ReportsPage: React.FC = () => {
     const [reportData, setReportData] = useState<ReportData | null>(null);
     const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
     const [showAbsences, setShowAbsences] = useState(true);
+    const [showNotes, setShowNotes] = useState(false);
     const [workerSummaryOptions, setWorkerSummaryOptions] = useState({
         advance: true,
         smoking: true,
@@ -1625,7 +1639,7 @@ export const ReportsPage: React.FC = () => {
 
     const reportTypes: { id: ReportType; label: string; icon: React.ElementType, generator: (context: ReportContext, filters: ReportFilters, options?: any) => ReportData }[] = [
         { id: 'workers', label: 'العمال', icon: Users, generator: (ctx, f, opts) => opts?.subType === 'summary' ? generateWorkersSummaryReport(ctx, f, opts) : generateWorkersDetailedReport(ctx, f) },
-        { id: 'daily', label: 'اليوميات', icon: CalendarDays, generator: (ctx, f, opts) => opts?.subType === 'detailed' ? generateDailyDetailedReport(ctx, f, opts?.showAbsences ?? false) : generateDailySummaryReport(ctx, f) },
+        { id: 'daily', label: 'اليوميات', icon: CalendarDays, generator: (ctx, f, opts) => opts?.subType === 'detailed' ? generateDailyDetailedReport(ctx, f, opts?.showAbsences ?? false) : generateDailySummaryReport(ctx, f, opts?.showNotes ?? false) },
         { id: 'subcontractors', label: 'مقاولين الباطن', icon: UserCheck, generator: generateSubcontractorsReport },
         { id: 'foremen', label: 'الرؤساء', icon: HardHat, generator: generateForemenReport },
         { id: 'projects', label: 'الورش', icon: Building, generator: generateProjectsReport },
@@ -1652,6 +1666,7 @@ export const ReportsPage: React.FC = () => {
              const options = {
                 subType: currentSubType,
                 showAbsences: showAbsences,
+                showNotes: showNotes,
                 workerSummaryOptions: workerSummaryOptions,
             };
             const data = reportGenerator(context, filters, options);
@@ -1825,25 +1840,52 @@ export const ReportsPage: React.FC = () => {
         }
 
         return (
-            <table className="w-full text-right">
-                <thead>
-                    <tr className="bg-gray-100 border-b">
-                        {reportData.columns.map(col => <th key={col.accessor} className="p-3 font-semibold text-gray-600">{col.header}</th>)}
-                    </tr>
-                </thead>
-                <tbody>
-                    {reportData.data.map((row: any, index: number) => (
-                        <tr key={index} className={`border-b hover:bg-gray-50 
-                            ${row.isWorkerSummary ? 'worker-summary-row' : ''} 
-                            ${row.isTotalSummary ? 'total-summary-row' : ''}`
-                        }>
-                            {reportData.columns.map(col => (
-                                <td key={col.accessor} className="p-3 text-gray-800">{row[col.accessor]}</td>
-                            ))}
+            <>
+                <table className="w-full text-right">
+                    <thead>
+                        <tr className="bg-gray-100 border-b">
+                            {reportData.columns.map(col => <th key={col.accessor} className="p-3 font-semibold text-gray-600">{col.header}</th>)}
                         </tr>
-                    ))}
-                </tbody>
-            </table>
+                    </thead>
+                    <tbody>
+                        {reportData.data.map((row: any, index: number) => (
+                            <tr key={index} className={`border-b hover:bg-gray-50 
+                                ${row.isWorkerSummary ? 'worker-summary-row' : ''} 
+                                ${row.isTotalSummary ? 'total-summary-row' : ''}`
+                            }>
+                                {reportData.columns.map(col => (
+                                    <td key={col.accessor} className="p-3 text-gray-800">{row[col.accessor]}</td>
+                                ))}
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+                
+                {/* Worker Notes Display for Daily Summary Report */}
+                {activeReport === 'daily' && dailyReportSubType === 'summary' && showNotes && reportData.summary?.notesMap && (
+                    <div className="mt-8 p-4 border-t-4 border-blue-600">
+                        <h3 className="text-xl font-bold mb-4 text-center text-gray-800">الملاحظات الخاصة للعمال</h3>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                            {Array.from(reportData.summary.notesMap.entries()).map(([workerId, notes]: [string, any[]]) => {
+                                const worker = reportData.summary.workerMap.get(workerId);
+                                return (
+                                    <div key={workerId} className="border-2 border-gray-300 rounded-lg p-3 bg-white shadow-sm">
+                                        <div className="font-bold text-lg mb-2 text-blue-700 border-b pb-1">{worker?.name || 'عامل غير معروف'}</div>
+                                        <div className="space-y-2">
+                                            {notes.map((note, idx) => (
+                                                <div key={idx} className={`p-2 rounded ${note.hasPayment ? 'bg-pink-100 border-pink-300' : 'bg-gray-50 border-gray-200'} border`}>
+                                                    <div className="text-sm font-semibold text-gray-700">{note.date}</div>
+                                                    <div className="text-sm text-gray-900 mt-1">{note.notes}</div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                )}
+            </>
         );
     };
 
@@ -1967,6 +2009,13 @@ export const ReportsPage: React.FC = () => {
                         <div>
                             <h3 className="font-semibold mb-2">خيارات التقرير التفصيلي</h3>
                             <label className="flex items-center gap-2"><input type="checkbox" checked={showAbsences} onChange={(e) => setShowAbsences(e.target.checked)} /><span>إظهار أيام الغياب في التقرير</span></label>
+                        </div>
+                    )}
+                    
+                    {activeReport === 'daily' && dailyReportSubType === 'summary' && (
+                        <div>
+                            <h3 className="font-semibold mb-2">خيارات التقرير الملخص</h3>
+                            <label className="flex items-center gap-2"><input type="checkbox" checked={showNotes} onChange={(e) => { setShowNotes(e.target.checked); handleGenerateReport('summary'); }} /><span>إظهار الملاحظات الخاصة للعمال</span></label>
                         </div>
                     )}
                     
