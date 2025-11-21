@@ -414,6 +414,11 @@ const DailyRecordsPage: React.FC = () => {
         // الترتيب الأبجدي
         if (sortBy === 'alphabetical') {
             const sortedRecords = [...filteredRecords].sort((a, b) => {
+                // ترتيب الغائبين في الأسفل
+                if (a.status === 'absent' && b.status !== 'absent') return 1;
+                if (a.status !== 'absent' && b.status === 'absent') return -1;
+                
+                // ترتيب أبجدي للبقية
                 const workerA = getWorkerDetails(a.workerId);
                 const workerB = getWorkerDetails(b.workerId);
                 const nameA = workerA?.name || '';
@@ -529,6 +534,11 @@ const DailyRecordsPage: React.FC = () => {
             .map(projectId => {
                 const group = projectGroups[projectId];
                 group.records.sort((a, b) => {
+                    // ترتيب الغائبين في الأسفل
+                    if (a.status === 'absent' && b.status !== 'absent') return 1;
+                    if (a.status !== 'absent' && b.status === 'absent') return -1;
+                    
+                    // ترتيب أبجدي للبقية
                     const workerA = getWorkerDetails(a.workerId);
                     const workerB = getWorkerDetails(b.workerId);
                     const nameA = workerA?.name || '';
