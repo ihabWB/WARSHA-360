@@ -3,8 +3,7 @@ import { useAppContext } from '../context/AppContext';
 import { usePermissions } from '../context/PermissionContext';
 import { Worker, Subcontractor, Foreman, WorkerPayment, ForemanPayment, SubcontractorPayment } from '../types';
 import Modal from '../components/Modal';
-import { Users, UserCheck, HardHat, PlusCircle, Edit, Trash2, Printer, ChevronUp, ChevronDown, BarChart3 } from 'lucide-react';
-import MultiSelect from '../components/MultiSelect';
+import { Users, UserCheck, HardHat, PlusCircle, Edit, Trash2, Printer, ChevronUp, ChevronDown, BarChart3, Calendar } from 'lucide-react';
 
 type ActiveTab = 'workers' | 'subcontractors' | 'foremen' | 'report';
 
@@ -43,23 +42,22 @@ const PaymentsPage: React.FC = () => {
                 </div>
                 <div>
                     <div hidden={activeTab !== 'workers'}>
-                        <WorkersPaymentSection selectedWorkerIds={ui.paymentsPage.selectedWorkerIds} setSelectedWorkerIds={setPaymentsPageWorkerSelection} />
+                        <WorkersPaymentSection />
                     </div>
                     <div hidden={activeTab !== 'subcontractors'}>
-                        <SubcontractorsPaymentSection selectedSubcontractorIds={ui.paymentsPage.selectedSubcontractorIds} setSelectedSubcontractorIds={setPaymentsPageSubcontractorSelection}/>
+                        <p className="text-center p-8 text-gray-500">قسم المقاولين قيد التطوير...</p>
                     </div>
                     <div hidden={activeTab !== 'foremen'}>
-                        <ForemenPaymentSection selectedForemanIds={ui.paymentsPage.selectedForemanIds} setSelectedForemanIds={setPaymentsPageForemanSelection} />
+                        <p className="text-center p-8 text-gray-500">قسم الرؤساء قيد التطوير...</p>
                     </div>
                     <div hidden={activeTab !== 'report'}>
-                        <StatementReportSection />
+                        <p className="text-center p-8 text-gray-500">قسم التقارير قيد التطوير...</p>
                     </div>
                 </div>
             </div>
         </div>
     );
 };
-
 
 // --- HELPERS ---
 const formatPaidMonth = (paidMonth: string) => {
@@ -73,209 +71,143 @@ const formatPaidMonth = (paidMonth: string) => {
     }
 };
 
+const getMonthName = (monthNum: string) => {
+    const monthInt = parseInt(monthNum);
+    const date = new Date(2024, monthInt - 1);
+    return date.toLocaleString('ar-EG', { month: 'long' });
+};
+
 // --- WORKERS PAYMENT SECTION ---
-interface WorkersPaymentSectionProps {
-    selectedWorkerIds: string[];
-    setSelectedWorkerIds: (ids: string[]) => void;
-}
-const WorkersPaymentSection: React.FC<WorkersPaymentSectionProps> = ({ selectedWorkerIds, setSelectedWorkerIds }) => {
-    const { workers, workerPayments, addWorkerPayment, updateWorkerPayment, deleteWorkerPaymentsBulk } = useAppContext();
+const WorkersPaymentSection: React.FC = () => {
+    const { workers, workerPayments, addWorkerPayment, updateWorkerPayment, deleteWorkerPayment } = useAppContext();
     const { hasPermission } = usePermissions();
     
     const canCreate = hasPermission('payments', 'create');
     const canUpdate = hasPermission('payments', 'update');
     const canDelete = hasPermission('payments', 'delete');
     
+    const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-    const [editingPayment, setEditingPayment] = useState<WorkerPayment | null>(null);
-    const [isBulkAddModalOpen, setIsBulkAddModalOpen] = useState(false);
+    const [selectedYear, setSelectedYear] = useState('');
+    const [selectedMonth, setSelectedMonth] = useState('');
+    const [selectedWorkerIds, setSelectedWorkerIds] = useState<string[]>([]);
+    const [editingPayments, setEditingPayments] = useState<WorkerPayment[]>([]);
     const [deleteInfo, setDeleteInfo] = useState<{ ids: string[]; message: string } | null>(null);
-    const [currentPaidMonth, setCurrentPaidMonth] = useState('');
-    
-    const printRef = useRef<HTMLDivElement>(null);
 
     const activeWorkers = useMemo(() => workers.filter(w => w.status === 'active').sort((a,b) => a.name.localeCompare(b.name)), [workers]);
     const workersById = useMemo(() => new Map(workers.map(w => [w.id, w.name])), [workers]);
     
-    const groupedPayments = useMemo(() => {
-        const groups: { [paidMonth: string]: WorkerPayment[] } = {};
-        if (selectedWorkerIds.length === 0) return {};
+    // تنظيم الدفعات حسب السنة والشهر
+    const groupedByYear = useMemo(() => {
+        const groups: { [year: string]: { [month: string]: WorkerPayment[] } } = {};
         
-        const payments = workerPayments.filter(p => selectedWorkerIds.includes(p.workerId));
+        workerPayments.forEach(payment => {
+            const [year, month] = payment.paidMonth.split('-');
+            if (!groups[year]) groups[year] = {};
+            if (!groups[year][month]) groups[year][month] = [];
+            groups[year][month].push(payment);
+        });
         
-        for (const payment of payments) {
-            if (!groups[payment.paidMonth]) {
-                groups[payment.paidMonth] = [];
-            }
-            groups[payment.paidMonth].push(payment);
-        }
         return groups;
-    }, [selectedWorkerIds, workerPayments]);
+    }, [workerPayments]);
 
-    const sortedMonths = useMemo(() => Object.keys(groupedPayments).sort().reverse(), [groupedPayments]);
+    const sortedYears = useMemo(() => Object.keys(groupedByYear).sort().reverse(), [groupedByYear]);
 
-    const handlePrint = () => {
-        if (!printRef.current) return;
-        const printWindow = window.open('', '_blank');
-        if (!printWindow) return;
-        printWindow.document.write(`<html><head><title>طباعة دفعات العمال</title>
-            <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap" rel="stylesheet" type="text/css">
-            <style>
-                body { font-family: 'Cairo', sans-serif; direction: rtl; }
-                @media print {
-                    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-                    .payment-group { page-break-inside: avoid; }
-                    h3 { text-align: center; font-size: 16pt; margin-bottom: 5px; color: black !important; }
-                    .payment-group-title { font-size: 14pt !important; background-color: #f2f2f2 !important; padding: 5px; margin-top: 20px; text-align: center; }
-                    table { width: 100%; border-collapse: collapse; font-size: 10pt; margin-top: 5px;}
-                    th, td { border: 1px solid #ccc !important; padding: 8px !important; text-align: right; color: black !important; }
-                    th { background-color: #f2f2f2 !important; font-weight: bold; }
-                    .no-print { display: none !important; }
-                }
-            </style>
-        </head><body>`);
-        printWindow.document.write(`<h3 class="main-title">سجل الدفعات للعمال المحددين</h3>`);
-        printWindow.document.write(printRef.current.innerHTML);
-        printWindow.document.write('</body></html>');
-        printWindow.document.close();
-        setTimeout(() => {
-            printWindow.focus();
-            printWindow.print();
-            printWindow.close();
-        }, 500);
+    const handleAddForMonth = (year: string, month: string) => {
+        setSelectedYear(year);
+        setSelectedMonth(month);
+        setSelectedWorkerIds([]);
+        setIsAddModalOpen(true);
     };
 
-    const handleEdit = (payment: WorkerPayment) => {
-        setEditingPayment(payment);
+    const handleEditForMonth = (year: string, month: string, workerIds: string[]) => {
+        const paidMonth = `${year}-${month}`;
+        const paymentsToEdit = workerPayments.filter(p => p.paidMonth === paidMonth && workerIds.includes(p.workerId));
+        setEditingPayments(paymentsToEdit);
+        setSelectedWorkerIds(workerIds);
+        setSelectedYear(year);
+        setSelectedMonth(month);
         setIsEditModalOpen(true);
     };
-    
-    const handleDelete = (id: string) => {
-        const payment = workerPayments.find(p => p.id === id);
-        if (!payment) return;
-        const workerName = workersById.get(payment.workerId) || 'عامل غير معروف';
-        const monthName = formatPaidMonth(payment.paidMonth);
-        setDeleteInfo({
-            ids: [id],
-            message: `هل أنت متأكد من حذف دفعة العامل "${workerName}" لشهر ${monthName}؟`
+
+    const handleSaveAdd = (data: { workerId: string; date: string; notes?: string }[]) => {
+        const paidMonth = `${selectedYear}-${selectedMonth}`;
+        data.forEach(item => {
+            addWorkerPayment({ ...item, paidMonth });
         });
+        setIsAddModalOpen(false);
     };
 
-    const handleDeleteGroup = (paymentIds: string[], paidMonth: string) => {
-        const monthName = formatPaidMonth(paidMonth);
+    const handleSaveEdit = (data: { workerId: string; date: string; notes?: string }[]) => {
+        data.forEach(item => {
+            const existingPayment = editingPayments.find(p => p.workerId === item.workerId);
+            if (existingPayment) {
+                updateWorkerPayment({ ...existingPayment, date: item.date, notes: item.notes });
+            }
+        });
+        setIsEditModalOpen(false);
+    };
+
+    const handleDelete = (paymentId: string) => {
+        const payment = workerPayments.find(p => p.id === paymentId);
+        if (!payment) return;
+        const workerName = workersById.get(payment.workerId) || 'عامل غير معروف';
         setDeleteInfo({
-            ids: paymentIds,
-            message: `هل أنت متأكد من حذف جميع دفعات شهر ${monthName}؟ (${paymentIds.length} دفعة)`
+            ids: [paymentId],
+            message: `هل أنت متأكد من حذف دفعة العامل "${workerName}"؟`
         });
     };
 
     const confirmDelete = () => {
-        if (deleteInfo) {
-            deleteWorkerPaymentsBulk(deleteInfo.ids);
+        if (deleteInfo && deleteInfo.ids.length > 0) {
+            deleteInfo.ids.forEach(id => deleteWorkerPayment(id));
             setDeleteInfo(null);
         }
     };
 
-    const handleUpdateSave = (data: { date: string, notes?: string, paidMonth: string }) => {
-        if (editingPayment) {
-            updateWorkerPayment({ ...editingPayment, ...data });
-        }
-        setIsEditModalOpen(false);
-    };
-
-    const handleBulkAddSave = (data: { date: string, notes?: string, paidMonth: string }) => {
-        const { paidMonth } = data;
-        
-        const workersWithExistingPayment = selectedWorkerIds.filter(workerId => 
-            workerPayments.some(p => p.workerId === workerId && p.paidMonth === paidMonth)
-        );
-    
-        if (workersWithExistingPayment.length > 0) {
-            const workerNames = workersWithExistingPayment.map(id => workersById.get(id)).join(', ');
-            const monthName = formatPaidMonth(paidMonth);
-            const proceed = window.confirm(
-                `تحذير: العمال التاليون لديهم دفعة مسجلة بالفعل لـ ${monthName}:\n${workerNames}\n\nهل تريد تسجيل دفعة جديدة لهم على أي حال؟`
-            );
-            if (!proceed) {
-                setIsBulkAddModalOpen(false);
-                return;
-            }
-        }
-
-        selectedWorkerIds.forEach(workerId => {
-            addWorkerPayment({ ...data, workerId });
-        });
-        setCurrentPaidMonth(paidMonth);
-        setIsBulkAddModalOpen(false);
-    };
-
     return (
         <div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4 items-end">
-                <div className="md:col-span-1">
-                    <MultiSelect
-                        label="اختر عامل أو أكثر"
-                        options={activeWorkers}
-                        selectedIds={selectedWorkerIds}
-                        onChange={setSelectedWorkerIds}
-                        disabledIds={currentPaidMonth ? workerPayments.filter(p => p.paidMonth === currentPaidMonth).map(p => p.workerId) : []}
-                    />
-                </div>
-                <div className="flex gap-2">
-                    {selectedWorkerIds.length > 0 && (
-                        <>
-                            <button onClick={() => setIsBulkAddModalOpen(true)} className="w-full bg-blue-600 text-white px-4 py-2.5 rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2">
-                                <PlusCircle size={18} /> تسجيل دفعة للمحددين
-                            </button>
-                            <button onClick={handlePrint} className="w-full bg-gray-600 text-white px-4 py-2.5 rounded-lg hover:bg-gray-700 flex items-center justify-center gap-2">
-                                <Printer size={18} /> طباعة السجل
-                            </button>
-                        </>
-                    )}
-                </div>
+            <div className="space-y-6">
+                {sortedYears.length > 0 ? (
+                    sortedYears.map(year => (
+                        <YearSection
+                            key={year}
+                            year={year}
+                            monthsData={groupedByYear[year]}
+                            workersById={workersById}
+                            onAddForMonth={handleAddForMonth}
+                            onEditForMonth={handleEditForMonth}
+                            onDelete={handleDelete}
+                            canCreate={canCreate}
+                            canUpdate={canUpdate}
+                            canDelete={canDelete}
+                        />
+                    ))
+                ) : (
+                    <div className="text-center p-12 bg-gray-50 rounded-lg border-2 border-dashed">
+                        <Calendar className="mx-auto mb-4 text-gray-400" size={48} />
+                        <p className="text-gray-500 text-lg mb-2">لا توجد دفعات مسجلة بعد</p>
+                        <p className="text-gray-400 text-sm">ابدأ بإضافة دفعات للعمال باستخدام الأزرار في كل شهر</p>
+                    </div>
+                )}
             </div>
 
-            {selectedWorkerIds.length > 0 && (
-                <div ref={printRef} className="mt-4 max-h-[60vh] overflow-y-auto space-y-8 pr-2">
-                    {sortedMonths.length > 0 ? (
-                        sortedMonths.map(month => (
-                            <PaymentMonthGroup 
-                                key={month}
-                                paidMonth={month}
-                                payments={groupedPayments[month]}
-                                workersById={workersById}
-                                onEdit={handleEdit}
-                                onDelete={handleDelete}
-                                onDeleteGroup={handleDeleteGroup}
-                                canUpdate={canUpdate}
-                                canDelete={canDelete}
-                            />
-                        ))
-                    ) : (
-                        <p className="text-center p-8 text-gray-500">لا توجد دفعات مسجلة للعمال المحددين بعد. يمكنك تسجيل دفعة جديدة باستخدام الزر أعلاه.</p>
-                    )}
-                </div>
-            )}
-            
-            {selectedWorkerIds.length === 0 && (
-                <p className="text-center p-8 text-gray-500">الرجاء اختيار عامل أو أكثر لعرض سجل دفعاتهم أو لتسجيل دفعة جديدة.</p>
-            )}
-            
-            <WorkerPaymentModal 
-                isOpen={isBulkAddModalOpen}
-                onClose={() => setIsBulkAddModalOpen(false)}
-                onSave={handleBulkAddSave}
-                payment={null}
-                isBulkMode={true}
-                count={selectedWorkerIds.length}
-                onMonthChange={setCurrentPaidMonth}
+            <WorkerPaymentAddModal
+                isOpen={isAddModalOpen}
+                onClose={() => setIsAddModalOpen(false)}
+                onSave={handleSaveAdd}
+                year={selectedYear}
+                month={selectedMonth}
+                activeWorkers={activeWorkers}
+                existingWorkerIds={workerPayments.filter(p => p.paidMonth === `${selectedYear}-${selectedMonth}`).map(p => p.workerId)}
             />
-            
-            <WorkerPaymentModal 
+
+            <WorkerPaymentEditModal
                 isOpen={isEditModalOpen}
                 onClose={() => setIsEditModalOpen(false)}
-                onSave={handleUpdateSave}
-                payment={editingPayment}
+                onSave={handleSaveEdit}
+                payments={editingPayments}
+                workersById={workersById}
             />
 
             <Modal isOpen={!!deleteInfo} onClose={() => setDeleteInfo(null)} title="تأكيد الحذف" size="sm">
@@ -294,979 +226,419 @@ const WorkersPaymentSection: React.FC<WorkersPaymentSectionProps> = ({ selectedW
     );
 };
 
-interface PaymentMonthGroupProps {
-    paidMonth: string;
-    payments: WorkerPayment[];
+interface YearSectionProps {
+    year: string;
+    monthsData: { [month: string]: WorkerPayment[] };
     workersById: Map<string, string>;
-    onEdit: (payment: WorkerPayment) => void;
-    onDelete: (id: string) => void;
-    onDeleteGroup: (paymentIds: string[], paidMonth: string) => void;
+    onAddForMonth: (year: string, month: string) => void;
+    onEditForMonth: (year: string, month: string, workerIds: string[]) => void;
+    onDelete: (paymentId: string) => void;
+    canCreate: boolean;
     canUpdate: boolean;
     canDelete: boolean;
 }
-const PaymentMonthGroup: React.FC<PaymentMonthGroupProps> = ({ paidMonth, payments, workersById, onEdit, onDelete, onDeleteGroup, canUpdate, canDelete }) => {
-    const [isTableVisible, setIsTableVisible] = useState(true);
-    const tableTitle = `قبضة الشهر (${formatPaidMonth(paidMonth)}) - (${paidMonth})`;
+
+const YearSection: React.FC<YearSectionProps> = ({ year, monthsData, workersById, onAddForMonth, onEditForMonth, onDelete, canCreate, canUpdate, canDelete }) => {
+    const [isYearExpanded, setIsYearExpanded] = useState(true);
     
+    const months = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'];
+
+    return (
+        <div className="border-2 rounded-lg shadow-lg overflow-hidden">
+            <div
+                className="flex justify-between items-center p-4 bg-gradient-to-r from-blue-600 to-blue-700 text-white cursor-pointer hover:from-blue-700 hover:to-blue-800 transition-all"
+                onClick={() => setIsYearExpanded(!isYearExpanded)}
+            >
+                <h2 className="text-2xl font-bold">سنة {year}</h2>
+                <div className="flex items-center gap-2">
+                    <span className="bg-white text-blue-600 px-3 py-1 rounded-full text-sm font-semibold">
+                        {Object.values(monthsData).reduce((sum, payments) => sum + payments.length, 0)} دفعة
+                    </span>
+                    {isYearExpanded ? <ChevronUp size={24} /> : <ChevronDown size={24} />}
+                </div>
+            </div>
+            
+            {isYearExpanded && (
+                <div className="p-4 bg-gray-50 space-y-4">
+                    {months.map(month => (
+                        <MonthSection
+                            key={month}
+                            year={year}
+                            month={month}
+                            payments={monthsData[month] || []}
+                            workersById={workersById}
+                            onAdd={() => onAddForMonth(year, month)}
+                            onEdit={(workerIds) => onEditForMonth(year, month, workerIds)}
+                            onDelete={onDelete}
+                            canCreate={canCreate}
+                            canUpdate={canUpdate}
+                            canDelete={canDelete}
+                        />
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+};
+
+interface MonthSectionProps {
+    year: string;
+    month: string;
+    payments: WorkerPayment[];
+    workersById: Map<string, string>;
+    onAdd: () => void;
+    onEdit: (workerIds: string[]) => void;
+    onDelete: (paymentId: string) => void;
+    canCreate: boolean;
+    canUpdate: boolean;
+    canDelete: boolean;
+}
+
+const MonthSection: React.FC<MonthSectionProps> = ({ year, month, payments, workersById, onAdd, onEdit, onDelete, canCreate, canUpdate, canDelete }) => {
+    const [isMonthExpanded, setIsMonthExpanded] = useState(false);
+    const [selectedPaymentIds, setSelectedPaymentIds] = useState<string[]>([]);
+
     const sortedPayments = useMemo(() => {
         return [...payments].sort((a, b) => {
             const nameA = workersById.get(a.workerId) || '';
             const nameB = workersById.get(b.workerId) || '';
-            if (nameA !== nameB) return nameA.localeCompare(nameB);
-            return b.date.localeCompare(a.date);
+            return nameA.localeCompare(nameB);
         });
     }, [payments, workersById]);
 
-    const handlePrintGroup = () => {
-        const tableRows = sortedPayments.map(p => `
-            <tr>
-                <td>${workersById.get(p.workerId) || ''}</td>
-                <td>${p.date}</td>
-                <td>${p.notes || ''}</td>
-            </tr>
-        `).join('');
-
-        const tableHTML = `
-            <table>
-                <thead>
-                    <tr><th>اسم العامل</th><th>تاريخ الدفعة</th><th>ملاحظات</th></tr>
-                </thead>
-                <tbody>${tableRows}</tbody>
-            </table>
-        `;
-        
-        const printWindow = window.open('', '_blank');
-        if (!printWindow) return;
-        printWindow.document.write(`<html><head><title>طباعة ${tableTitle}</title>
-            <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap" rel="stylesheet" type="text/css">
-            <style>
-                body { font-family: 'Cairo', sans-serif; direction: rtl; margin: 15px; }
-                @media print {
-                    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-                    .no-print { display: none !important; }
-                    h3 { text-align: center; font-size: 16pt; margin-bottom: 5px; color: black !important; }
-                    table { width: 100%; border-collapse: collapse; font-size: 10pt; margin-top: 5px;}
-                    th, td { border: 1px solid #ccc !important; padding: 8px !important; text-align: right; color: black !important; }
-                    th { background-color: #f2f2f2 !important; font-weight: bold; }
-                }
-            </style>
-        </head><body>`);
-        printWindow.document.write(`<h3>${tableTitle}</h3>`);
-        printWindow.document.write(tableHTML);
-        printWindow.document.write('</body></html>');
-        printWindow.document.close();
-        setTimeout(() => {
-            printWindow.focus();
-            printWindow.print();
-            printWindow.close();
-        }, 500);
+    const togglePaymentSelection = (paymentId: string) => {
+        setSelectedPaymentIds(prev =>
+            prev.includes(paymentId) ? prev.filter(id => id !== paymentId) : [...prev, paymentId]
+        );
     };
 
-    const handleDeleteGroupClick = () => {
-        const idsToDelete = payments.map(p => p.id);
-        onDeleteGroup(idsToDelete, paidMonth);
+    const toggleSelectAll = () => {
+        if (selectedPaymentIds.length === payments.length) {
+            setSelectedPaymentIds([]);
+        } else {
+            setSelectedPaymentIds(payments.map(p => p.id));
+        }
     };
+
+    const handleEditSelected = () => {
+        const workerIds = payments.filter(p => selectedPaymentIds.includes(p.id)).map(p => p.workerId);
+        onEdit(workerIds);
+    };
+
+    const monthName = getMonthName(month);
 
     return (
-        <div className="payment-group border rounded-lg shadow-sm bg-white">
+        <div className="border rounded-lg bg-white shadow-sm overflow-hidden">
             <div
-                className={`flex justify-between items-center p-3 cursor-pointer bg-gray-50 hover:bg-gray-100 ${isTableVisible ? 'rounded-t-lg border-b' : 'rounded-lg'}`}
-                onClick={() => setIsTableVisible(!isTableVisible)}
+                className={`flex justify-between items-center p-3 cursor-pointer transition-colors ${isMonthExpanded ? 'bg-blue-50 border-b' : 'hover:bg-gray-50'}`}
+                onClick={() => setIsMonthExpanded(!isMonthExpanded)}
             >
-                <h3 className="text-lg font-semibold text-gray-800 payment-group-title">{tableTitle}</h3>
-                <div className="flex items-center gap-2 no-print">
-                    <button onClick={(e) => { e.stopPropagation(); handlePrintGroup(); }} className="p-1 text-gray-600 hover:text-gray-800" title={`طباعة قبضات شهر ${formatPaidMonth(paidMonth)}`}>
-                        <Printer size={18} />
-                    </button>
-                    {canDelete && <button onClick={(e) => { e.stopPropagation(); handleDeleteGroupClick(); }} className="p-1 text-red-600 hover:text-red-800" title={`حذف جميع قبضات شهر ${formatPaidMonth(paidMonth)}`}>
-                        <Trash2 size={18} />
-                    </button>}
-                    <span className="p-1 text-blue-600">
-                        {isTableVisible ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+                <div className="flex items-center gap-3">
+                    <h3 className="text-lg font-bold text-gray-800">{monthName} {year}</h3>
+                    <span className={`px-2 py-1 rounded-full text-xs font-semibold ${payments.length > 0 ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                        {payments.length > 0 ? `${payments.length} عامل` : 'فارغ'}
                     </span>
                 </div>
+                <div className="flex items-center gap-2">
+                    {canCreate && (
+                        <button
+                            onClick={(e) => { e.stopPropagation(); onAdd(); }}
+                            className="bg-blue-600 text-white px-3 py-1.5 rounded-md hover:bg-blue-700 flex items-center gap-1 text-sm"
+                        >
+                            <PlusCircle size={16} />
+                            <span>إضافة</span>
+                        </button>
+                    )}
+                    {isMonthExpanded ? <ChevronUp size={20} className="text-blue-600" /> : <ChevronDown size={20} className="text-gray-400" />}
+                </div>
             </div>
-            {isTableVisible && (
-                <div className="p-2">
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-right">
-                            <thead><tr className="bg-gray-100 border-b">
-                                <th className="p-3 text-black">اسم العامل</th>
-                                <th className="p-3 text-black">تاريخ الدفعة</th>
-                                <th className="p-3 text-black">ملاحظات</th>
-                                <th className="p-3 text-black no-print">إجراءات</th></tr>
-                            </thead>
-                            <tbody>
-                                {sortedPayments.map(p => (
-                                    <tr key={p.id} className="border-b">
-                                        <td className="p-3 font-medium text-black">{workersById.get(p.workerId)}</td>
-                                        <td className="p-3 text-black">{p.date}</td>
-                                        <td className="p-3 text-black">{p.notes}</td>
-                                        <td className="p-3 no-print">
-                                            <div className="flex gap-2">
-                                                <button onClick={() => onEdit(p)} className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 p-1" title="تعديل"><Edit size={20}/></button>
-                                                <button onClick={() => onDelete(p.id)} className="text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300 p-1" title="حذف"><Trash2 size={20}/></button>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
+
+            {isMonthExpanded && (
+                <div className="p-4">
+                    {payments.length > 0 ? (
+                        <>
+                            <div className="mb-3 flex justify-between items-center">
+                                <div className="flex items-center gap-4">
+                                    <label className="flex items-center gap-2 cursor-pointer">
+                                        <input
+                                            type="checkbox"
+                                            checked={selectedPaymentIds.length === payments.length}
+                                            onChange={toggleSelectAll}
+                                            className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                        />
+                                        <span className="text-sm text-gray-700 font-medium">تحديد الكل</span>
+                                    </label>
+                                    {selectedPaymentIds.length > 0 && (
+                                        <span className="text-sm text-blue-600 font-semibold">
+                                            {selectedPaymentIds.length} محدد
+                                        </span>
+                                    )}
+                                </div>
+                                {canUpdate && selectedPaymentIds.length > 0 && (
+                                    <button
+                                        onClick={handleEditSelected}
+                                        className="bg-amber-600 text-white px-3 py-1.5 rounded-md hover:bg-amber-700 flex items-center gap-1 text-sm"
+                                    >
+                                        <Edit size={16} />
+                                        <span>تعديل المحددين</span>
+                                    </button>
+                                )}
+                            </div>
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-right text-sm">
+                                    <thead>
+                                        <tr className="bg-gray-100 border-b">
+                                            <th className="p-2 w-10"></th>
+                                            <th className="p-2 text-gray-700 font-semibold">اسم العامل</th>
+                                            <th className="p-2 text-gray-700 font-semibold">تاريخ القبض</th>
+                                            <th className="p-2 text-gray-700 font-semibold">ملاحظات</th>
+                                            <th className="p-2 text-gray-700 font-semibold w-24">إجراءات</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {sortedPayments.map(payment => (
+                                            <tr key={payment.id} className="border-b hover:bg-gray-50">
+                                                <td className="p-2">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={selectedPaymentIds.includes(payment.id)}
+                                                        onChange={() => togglePaymentSelection(payment.id)}
+                                                        className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                                    />
+                                                </td>
+                                                <td className="p-2 font-medium text-gray-800">
+                                                    {workersById.get(payment.workerId)}
+                                                </td>
+                                                <td className="p-2 text-gray-700">{payment.date}</td>
+                                                <td className="p-2 text-gray-600">{payment.notes || '-'}</td>
+                                                <td className="p-2">
+                                                    <div className="flex gap-1">
+                                                        {canUpdate && (
+                                                            <button
+                                                                onClick={() => onEdit([payment.workerId])}
+                                                                className="text-blue-600 hover:text-blue-800 p-1"
+                                                                title="تعديل"
+                                                            >
+                                                                <Edit size={18} />
+                                                            </button>
+                                                        )}
+                                                        {canDelete && (
+                                                            <button
+                                                                onClick={() => onDelete(payment.id)}
+                                                                className="text-red-600 hover:text-red-800 p-1"
+                                                                title="حذف"
+                                                            >
+                                                                <Trash2 size={18} />
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </>
+                    ) : (
+                        <div className="text-center py-8 text-gray-500">
+                            <p className="text-sm">لم يتم إضافة أي دفعات لهذا الشهر</p>
+                            {canCreate && (
+                                <button
+                                    onClick={onAdd}
+                                    className="mt-3 text-blue-600 hover:text-blue-800 text-sm font-medium"
+                                >
+                                    + إضافة دفعة
+                                </button>
+                            )}
+                        </div>
+                    )}
                 </div>
             )}
         </div>
     );
 };
 
-interface WorkerPaymentModalProps { 
-    isOpen: boolean; 
-    onClose: () => void; 
-    onSave: (data: { date: string, notes?: string, paidMonth: string }) => void; 
-    payment: WorkerPayment | null; 
-    isBulkMode?: boolean;
-    count?: number;
-    onMonthChange?: (month: string) => void;
+interface WorkerPaymentAddModalProps {
+    isOpen: boolean;
+    onClose: () => void;
+    onSave: (data: { workerId: string; date: string; notes?: string }[]) => void;
+    year: string;
+    month: string;
+    activeWorkers: Worker[];
+    existingWorkerIds: string[];
 }
-const WorkerPaymentModal: React.FC<WorkerPaymentModalProps> = ({ isOpen, onClose, onSave, payment, isBulkMode = false, count = 0, onMonthChange }) => {
-    const currentYear = new Date().getFullYear();
-    const [formData, setFormData] = useState({ 
-        date: new Date().toISOString().split('T')[0], 
-        notes: '',
-        year: currentYear,
-        month: new Date().getMonth() + 1,
-    });
 
-    const years = useMemo(() => Array.from({length: 11}, (_, i) => currentYear - 5 + i), [currentYear]);
-    const months = useMemo(() => Array.from({length: 12}, (_, i) => ({ value: i + 1, name: new Date(0, i).toLocaleString('ar-EG', {month: 'long'}) })), []);
+const WorkerPaymentAddModal: React.FC<WorkerPaymentAddModalProps> = ({ isOpen, onClose, onSave, year, month, activeWorkers, existingWorkerIds }) => {
+    const [selectedWorkerIds, setSelectedWorkerIds] = useState<string[]>([]);
+    const [commonDate, setCommonDate] = useState(new Date().toISOString().split('T')[0]);
+    const [commonNotes, setCommonNotes] = useState('');
 
-    React.useEffect(() => {
-        if (isOpen) {
-            const initialYear = payment?.paidMonth ? parseInt(payment.paidMonth.split('-')[0]) : new Date().getFullYear();
-            const initialMonth = payment?.paidMonth ? parseInt(payment.paidMonth.split('-')[1]) : new Date().getMonth() + 1;
-            
-            setFormData({
-                date: payment?.date || new Date().toISOString().split('T')[0],
-                notes: payment?.notes || '',
-                year: initialYear,
-                month: initialMonth,
-            });
-        }
-    }, [payment, isOpen]);
-    
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-        const { name, value } = e.target;
-        setFormData(p => {
-            const newFormData = { ...p };
-            switch(name as keyof typeof newFormData) {
-                case 'date': newFormData.date = value; break;
-                case 'notes': newFormData.notes = value; break;
-                case 'year': 
-                    newFormData.year = Number(value);
-                    if (onMonthChange && isBulkMode) {
-                        onMonthChange(`${Number(value)}-${String(newFormData.month).padStart(2, '0')}`);
-                    }
-                    break;
-                case 'month': 
-                    newFormData.month = Number(value);
-                    if (onMonthChange && isBulkMode) {
-                        onMonthChange(`${newFormData.year}-${String(Number(value)).padStart(2, '0')}`);
-                    }
-                    break;
-            }
-            return newFormData;
-        });
+    const availableWorkers = useMemo(() => 
+        activeWorkers.filter(w => !existingWorkerIds.includes(w.id)),
+        [activeWorkers, existingWorkerIds]
+    );
+
+    const toggleWorker = (workerId: string) => {
+        setSelectedWorkerIds(prev =>
+            prev.includes(workerId) ? prev.filter(id => id !== workerId) : [...prev, workerId]
+        );
     };
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        const paidMonth = `${formData.year}-${String(formData.month).padStart(2, '0')}`;
-        onSave({ date: formData.date, notes: formData.notes, paidMonth });
+        const data = selectedWorkerIds.map(workerId => ({
+            workerId,
+            date: commonDate,
+            notes: commonNotes
+        }));
+        onSave(data);
+        setSelectedWorkerIds([]);
+        setCommonDate(new Date().toISOString().split('T')[0]);
+        setCommonNotes('');
     };
 
-    const title = isBulkMode ? `إضافة دفعة لـ ${count} عمال` : (payment ? 'تعديل تاريخ دفعة' : 'إضافة تاريخ دفعة');
-    
+    const monthName = month ? getMonthName(month) : '';
+
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title={title}>
+        <Modal isOpen={isOpen} onClose={onClose} title={`إضافة دفعات لشهر ${monthName} ${year}`} size="lg">
             <form onSubmit={handleSubmit} className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">دفعة شهر</label>
-                        <select name="month" value={formData.month} onChange={handleChange} className="w-full bg-white border p-2 rounded-md">
-                            {months.map(m => <option key={m.value} value={m.value}>{m.name}</option>)}
-                        </select>
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">اختر العمال</label>
+                    <div className="max-h-60 overflow-y-auto border rounded-md p-2 space-y-1">
+                        {availableWorkers.length > 0 ? (
+                            availableWorkers.map(worker => (
+                                <label key={worker.id} className="flex items-center gap-2 p-2 hover:bg-gray-50 rounded cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        checked={selectedWorkerIds.includes(worker.id)}
+                                        onChange={() => toggleWorker(worker.id)}
+                                        className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                    />
+                                    <span>{worker.name}</span>
+                                </label>
+                            ))
+                        ) : (
+                            <p className="text-center text-gray-500 py-4">جميع العمال لديهم دفعات مسجلة لهذا الشهر</p>
+                        )}
                     </div>
-                     <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">سنة</label>
-                        <select name="year" value={formData.year} onChange={handleChange} className="w-full bg-white border p-2 rounded-md">
-                            {years.map(y => <option key={y} value={y}>{y}</option>)}
-                        </select>
-                    </div>
+                    {selectedWorkerIds.length > 0 && (
+                        <p className="text-sm text-blue-600 mt-2">{selectedWorkerIds.length} عامل محدد</p>
+                    )}
                 </div>
-                <div><label className="block text-sm font-medium text-gray-700 mb-1">تاريخ الدفع الفعلي</label><input type="date" name="date" value={formData.date} onChange={handleChange} className="w-full bg-white border p-2 rounded-md" required /></div>
-                <div><label className="block text-sm font-medium text-gray-700 mb-1">ملاحظات</label><textarea name="notes" value={formData.notes} onChange={handleChange} className="w-full bg-white border p-2 rounded-md" rows={3}></textarea></div>
-                <div className="mt-6 flex justify-end gap-3"><button type="button" onClick={onClose} className="bg-gray-200 px-4 py-2 rounded-md">إلغاء</button><button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded-md">حفظ</button></div>
-            </form>
-        </Modal>
-    );
-};
-
-
-// --- SUBCONTRACTORS PAYMENT SECTION ---
-const SubcontractorsPaymentSection: React.FC<{selectedSubcontractorIds: string[], setSelectedSubcontractorIds: (ids: string[]) => void;}> = ({selectedSubcontractorIds, setSelectedSubcontractorIds}) => {
-    const { subcontractors, subcontractorPayments, addSubcontractorPayment, updateSubcontractorPayment, deleteSubcontractorPaymentsBulk } = useAppContext();
-    const { hasPermission } = usePermissions();
-    
-    const canCreate = hasPermission('payments', 'create');
-    const canUpdate = hasPermission('payments', 'update');
-    const canDelete = hasPermission('payments', 'delete');
-    
-    const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-    const [editingPayment, setEditingPayment] = useState<SubcontractorPayment | null>(null);
-    const [isBulkAddModalOpen, setIsBulkAddModalOpen] = useState(false);
-    const [deleteInfo, setDeleteInfo] = useState<{ ids: string[]; message: string } | null>(null);
-    
-    const printRef = useRef<HTMLDivElement>(null);
-
-    const activeSubcontractors = useMemo(() => subcontractors.filter(s => s.status === 'active').sort((a,b) => a.name.localeCompare(b.name)), [subcontractors]);
-    const subcontractorsById = useMemo(() => new Map(subcontractors.map(s => [s.id, s.name])), [subcontractors]);
-    
-    const groupedPayments = useMemo(() => {
-        const groups: { [paidMonth: string]: SubcontractorPayment[] } = {};
-        if (selectedSubcontractorIds.length === 0) return {};
-        
-        const payments = subcontractorPayments.filter(p => selectedSubcontractorIds.includes(p.subcontractorId));
-        
-        for (const payment of payments) {
-            if (!groups[payment.paidMonth]) {
-                groups[payment.paidMonth] = [];
-            }
-            groups[payment.paidMonth].push(payment);
-        }
-        return groups;
-    }, [selectedSubcontractorIds, subcontractorPayments]);
-
-    const sortedMonths = useMemo(() => Object.keys(groupedPayments).sort().reverse(), [groupedPayments]);
-    
-    const handlePrint = () => {
-        if (!printRef.current) return;
-        const printWindow = window.open('', '_blank');
-        if (!printWindow) return;
-        printWindow.document.write(`<html><head><title>طباعة كشوفات حساب المقاولين</title>
-            <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap" rel="stylesheet" type="text/css">
-            <style>
-                body { font-family: 'Cairo', sans-serif; direction: rtl; }
-                @media print {
-                    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-                    .payment-group { page-break-inside: avoid; }
-                    h3 { text-align: center; font-size: 16pt; margin-bottom: 5px; color: black !important; }
-                    .payment-group-title { font-size: 14pt !important; background-color: #f2f2f2 !important; padding: 5px; margin-top: 20px; text-align: center; }
-                    table { width: 100%; border-collapse: collapse; font-size: 10pt; margin-top: 5px;}
-                    th, td { border: 1px solid #ccc !important; padding: 8px !important; text-align: right; color: black !important; }
-                    th { background-color: #f2f2f2 !important; font-weight: bold; }
-                    .no-print { display: none !important; }
-                }
-            </style>
-        </head><body>`);
-        printWindow.document.write(`<h3 class="main-title">سجل كشوفات الحساب للمقاولين المحددين</h3>`);
-        printWindow.document.write(printRef.current.innerHTML);
-        printWindow.document.write('</body></html>');
-        printWindow.document.close();
-        setTimeout(() => {
-            printWindow.focus();
-            printWindow.print();
-            printWindow.close();
-        }, 500);
-    };
-
-    const handleEdit = (payment: SubcontractorPayment) => {
-        setEditingPayment(payment);
-        setIsEditModalOpen(true);
-    };
-    
-    const handleDelete = (id: string) => {
-        const payment = subcontractorPayments.find(p => p.id === id);
-        if (!payment) return;
-        const subcontractorName = subcontractorsById.get(payment.subcontractorId) || 'مقاول غير معروف';
-        const monthName = formatPaidMonth(payment.paidMonth);
-        setDeleteInfo({
-            ids: [id],
-            message: `هل أنت متأكد من حذف كشف حساب المقاول "${subcontractorName}" لشهر ${monthName}؟`
-        });
-    };
-
-    const handleDeleteGroup = (paymentIds: string[], paidMonth: string) => {
-        const monthName = formatPaidMonth(paidMonth);
-        setDeleteInfo({
-            ids: paymentIds,
-            message: `هل أنت متأكد من حذف جميع كشوفات شهر ${monthName}؟ (${paymentIds.length} كشف)`
-        });
-    };
-
-    const confirmDelete = () => {
-        if (deleteInfo) {
-            deleteSubcontractorPaymentsBulk(deleteInfo.ids);
-            setDeleteInfo(null);
-        }
-    };
-
-    const handleUpdateSave = (data: { date: string, notes?: string, paidMonth: string }) => {
-        if (editingPayment) {
-            updateSubcontractorPayment({ ...editingPayment, ...data });
-        }
-        setIsEditModalOpen(false);
-    };
-
-    const handleBulkAddSave = (data: { date: string, notes?: string, paidMonth: string }) => {
-        selectedSubcontractorIds.forEach(subcontractorId => {
-            addSubcontractorPayment({ ...data, subcontractorId });
-        });
-        setIsBulkAddModalOpen(false);
-    };
-    
-    return (
-        <div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4 items-end">
-                <div className="md:col-span-1">
-                    <MultiSelect
-                        label="اختر مقاول أو أكثر"
-                        options={activeSubcontractors}
-                        selectedIds={selectedSubcontractorIds}
-                        onChange={setSelectedSubcontractorIds}
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">تاريخ القبض (موحد للكل)</label>
+                    <input
+                        type="date"
+                        value={commonDate}
+                        onChange={(e) => setCommonDate(e.target.value)}
+                        className="w-full bg-white border p-2 rounded-md"
+                        required
                     />
                 </div>
-                <div className="flex gap-2">
-                    {selectedSubcontractorIds.length > 0 && (
-                        <>
-                            <button onClick={() => setIsBulkAddModalOpen(true)} className="w-full bg-blue-600 text-white px-4 py-2.5 rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2">
-                                <PlusCircle size={18} /> تسجيل كشف حساب للمحددين
-                            </button>
-                            <button onClick={handlePrint} className="w-full bg-gray-600 text-white px-4 py-2.5 rounded-lg hover:bg-gray-700 flex items-center justify-center gap-2">
-                                <Printer size={18} /> طباعة السجل
-                            </button>
-                        </>
-                    )}
-                </div>
-            </div>
-
-             {selectedSubcontractorIds.length > 0 ? (
-                <div ref={printRef} className="mt-4 max-h-[60vh] overflow-y-auto space-y-8 pr-2">
-                    {sortedMonths.length > 0 ? (
-                        sortedMonths.map(month => (
-                            <SubcontractorPaymentMonthGroup 
-                                key={month}
-                                paidMonth={month}
-                                payments={groupedPayments[month]}
-                                subcontractorsById={subcontractorsById}
-                                onEdit={handleEdit}
-                                onDelete={handleDelete}
-                                onDeleteGroup={handleDeleteGroup}
-                                canUpdate={canUpdate}
-                                canDelete={canDelete}
-                            />
-                        ))
-                    ) : (
-                        <p className="text-center p-8 text-gray-500">لا توجد كشوفات حساب مسجلة للمقاولين المحددين.</p>
-                    )}
-                </div>
-            ) : <p className="text-center p-8 text-gray-500">الرجاء اختيار مقاول أو أكثر لعرض سجل كشوفاتهم.</p>}
-
-            <SubcontractorPaymentModal
-                isOpen={isBulkAddModalOpen}
-                onClose={() => setIsBulkAddModalOpen(false)}
-                onSave={handleBulkAddSave}
-                payment={null}
-                isBulkMode={true}
-                count={selectedSubcontractorIds.length}
-            />
-            
-            <SubcontractorPaymentModal
-                isOpen={isEditModalOpen}
-                onClose={() => setIsEditModalOpen(false)}
-                onSave={handleUpdateSave}
-                payment={editingPayment}
-            />
-            
-            <Modal isOpen={!!deleteInfo} onClose={() => setDeleteInfo(null)} title="تأكيد الحذف" size="sm">
-                {deleteInfo && (
-                    <div className="text-center">
-                        <p className="mb-4 text-lg">{deleteInfo.message}</p>
-                        <p className="text-sm text-gray-500 mb-6">لا يمكن التراجع عن هذا الإجراء.</p>
-                        <div className="flex justify-center gap-4">
-                            <button onClick={() => setDeleteInfo(null)} className="bg-gray-200 text-gray-800 px-6 py-2 rounded-md hover:bg-gray-300 font-semibold">إلغاء</button>
-                            <button onClick={confirmDelete} className="bg-red-600 text-white px-6 py-2 rounded-md hover:bg-red-700 font-semibold">نعم، حذف</button>
-                        </div>
-                    </div>
-                )}
-            </Modal>
-        </div>
-    );
-};
-
-interface SubcontractorPaymentMonthGroupProps {
-    paidMonth: string;
-    payments: SubcontractorPayment[];
-    subcontractorsById: Map<string, string>;
-    onEdit: (payment: SubcontractorPayment) => void;
-    onDelete: (id: string) => void;
-    onDeleteGroup: (paymentIds: string[], paidMonth: string) => void;
-    canUpdate: boolean;
-    canDelete: boolean;
-}
-const SubcontractorPaymentMonthGroup: React.FC<SubcontractorPaymentMonthGroupProps> = ({ paidMonth, payments, subcontractorsById, onEdit, onDelete, onDeleteGroup, canUpdate, canDelete }) => {
-    const [isTableVisible, setIsTableVisible] = useState(true);
-    const tableTitle = `كشف حساب شهر (${formatPaidMonth(paidMonth)}) - (${paidMonth})`;
-    
-    const sortedPayments = useMemo(() => [...payments].sort((a, b) => (subcontractorsById.get(a.subcontractorId) || '').localeCompare(subcontractorsById.get(b.subcontractorId) || '')), [payments, subcontractorsById]);
-    
-    const handlePrintGroup = () => {
-        const tableRows = sortedPayments.map(p => `
-            <tr>
-                <td>${subcontractorsById.get(p.subcontractorId) || ''}</td>
-                <td>${p.date}</td>
-                <td>${p.notes || ''}</td>
-            </tr>
-        `).join('');
-
-        const tableHTML = `
-            <table>
-                <thead>
-                    <tr><th>اسم المقاول</th><th>تاريخ الكشف</th><th>ملاحظات</th></tr>
-                </thead>
-                <tbody>${tableRows}</tbody>
-            </table>
-        `;
-        
-        const printWindow = window.open('', '_blank');
-        if (!printWindow) return;
-        printWindow.document.write(`<html><head><title>طباعة ${tableTitle}</title>
-            <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap" rel="stylesheet" type="text/css">
-            <style>
-                body { font-family: 'Cairo', sans-serif; direction: rtl; margin: 15px; }
-                @media print {
-                    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-                    .no-print { display: none !important; }
-                    h3 { text-align: center; font-size: 16pt; margin-bottom: 5px; color: black !important; }
-                    table { width: 100%; border-collapse: collapse; font-size: 10pt; margin-top: 5px;}
-                    th, td { border: 1px solid #ccc !important; padding: 8px !important; text-align: right; color: black !important; }
-                    th { background-color: #f2f2f2 !important; font-weight: bold; }
-                }
-            </style>
-        </head><body>`);
-        printWindow.document.write(`<h3>${tableTitle}</h3>`);
-        printWindow.document.write(tableHTML);
-        printWindow.document.write('</body></html>');
-        printWindow.document.close();
-        setTimeout(() => {
-            printWindow.focus();
-            printWindow.print();
-            printWindow.close();
-        }, 500);
-    };
-    
-    const handleDeleteGroupClick = () => onDeleteGroup(payments.map(p => p.id), paidMonth);
-
-    return (
-        <div className="payment-group border rounded-lg shadow-sm bg-white">
-            <div className={`flex justify-between items-center p-3 cursor-pointer bg-gray-50 hover:bg-gray-100 ${isTableVisible ? 'rounded-t-lg border-b' : 'rounded-lg'}`} onClick={() => setIsTableVisible(!isTableVisible)}>
-                <h3 className="text-lg font-semibold text-gray-800 payment-group-title">{tableTitle}</h3>
-                <div className="flex items-center gap-2 no-print">
-                    <button onClick={(e) => { e.stopPropagation(); handlePrintGroup(); }} className="p-1 text-gray-600 hover:text-gray-800"><Printer size={18} /></button>
-                    {canDelete && <button onClick={(e) => { e.stopPropagation(); handleDeleteGroupClick(); }} className="p-1 text-red-600 hover:text-red-800"><Trash2 size={18} /></button>}
-                    <span className="p-1 text-blue-600">{isTableVisible ? <ChevronUp size={20} /> : <ChevronDown size={20} />}</span>
-                </div>
-            </div>
-            {isTableVisible && <div className="p-2"><table className="w-full text-right">
-                <thead><tr className="bg-gray-100 border-b"><th className="p-3 text-black">اسم المقاول</th><th className="p-3 text-black">تاريخ الكشف</th><th className="p-3 text-black">ملاحظات</th><th className="p-3 no-print text-black">إجراءات</th></tr></thead>
-                <tbody>{sortedPayments.map(p => (<tr key={p.id} className="border-b">
-                    <td className="p-3 font-medium text-black">{subcontractorsById.get(p.subcontractorId)}</td>
-                    <td className="p-3 text-black">{p.date}</td><td className="p-3 text-black">{p.notes}</td>
-                    <td className="p-3 no-print"><div className="flex gap-2">
-                        {canUpdate && <button onClick={() => onEdit(p)} className="text-blue-600 hover:text-blue-800 p-1"><Edit size={18}/></button>}
-                        {canDelete && <button onClick={() => onDelete(p.id)} className="text-red-600 hover:text-red-800 p-1"><Trash2 size={18}/></button>}
-                    </div></td></tr>
-                ))}</tbody>
-            </table></div>}
-        </div>
-    );
-};
-
-
-interface SubcontractorPaymentModalProps { 
-    isOpen: boolean; 
-    onClose: () => void; 
-    onSave: (data: { date: string, notes?: string, paidMonth: string }) => void; 
-    payment: SubcontractorPayment | null; 
-    isBulkMode?: boolean;
-    count?: number;
-}
-const SubcontractorPaymentModal: React.FC<SubcontractorPaymentModalProps> = ({ isOpen, onClose, onSave, payment, isBulkMode = false, count = 0 }) => {
-    const currentYear = new Date().getFullYear();
-    const [formData, setFormData] = useState({ 
-        date: new Date().toISOString().split('T')[0], 
-        notes: '',
-        year: currentYear,
-        month: new Date().getMonth() + 1,
-    });
-    const years = useMemo(() => Array.from({length: 11}, (_, i) => currentYear - 5 + i), [currentYear]);
-    const months = useMemo(() => Array.from({length: 12}, (_, i) => ({ value: i + 1, name: new Date(0, i).toLocaleString('ar-EG', {month: 'long'}) })), []);
-
-    React.useEffect(() => {
-        if (isOpen) {
-            const initialYear = payment?.paidMonth ? parseInt(payment.paidMonth.split('-')[0]) : new Date().getFullYear();
-            const initialMonth = payment?.paidMonth ? parseInt(payment.paidMonth.split('-')[1]) : new Date().getMonth() + 1;
-            setFormData({
-                date: payment?.date || new Date().toISOString().split('T')[0],
-                notes: payment?.notes || '',
-                year: initialYear, month: initialMonth,
-            });
-        }
-    }, [payment, isOpen]);
-    
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-        const { name, value } = e.target;
-        setFormData(p => {
-            const newFormData = { ...p };
-            switch(name as keyof typeof newFormData) {
-                case 'date': newFormData.date = value; break;
-                case 'notes': newFormData.notes = value; break;
-                case 'year': newFormData.year = Number(value); break;
-                case 'month': newFormData.month = Number(value); break;
-            }
-            return newFormData;
-        });
-    };
-    const handleSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
-        onSave({ date: formData.date, notes: formData.notes, paidMonth: `${formData.year}-${String(formData.month).padStart(2, '0')}` });
-    };
-
-    const title = isBulkMode ? `إضافة كشف حساب لـ ${count} مقاولين` : (payment ? 'تعديل كشف حساب' : 'إضافة كشف حساب');
-
-    return (
-        <Modal isOpen={isOpen} onClose={onClose} title={title}>
-            <form onSubmit={handleSubmit} className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                    <div><label className="block text-sm font-medium text-gray-700 mb-1">كشف حساب شهر</label><select name="month" value={formData.month} onChange={handleChange} className="w-full bg-white border p-2 rounded-md">{months.map(m => <option key={m.value} value={m.value}>{m.name}</option>)}</select></div>
-                    <div><label className="block text-sm font-medium text-gray-700 mb-1">سنة</label><select name="year" value={formData.year} onChange={handleChange} className="w-full bg-white border p-2 rounded-md">{years.map(y => <option key={y} value={y}>{y}</option>)}</select></div>
-                </div>
-                <div><label className="block text-sm font-medium text-gray-700 mb-1">تاريخ الكشف الفعلي</label><input type="date" name="date" value={formData.date} onChange={handleChange} className="w-full bg-white border p-2 rounded-md" required /></div>
-                <div><label className="block text-sm font-medium text-gray-700 mb-1">ملاحظات</label><textarea name="notes" value={formData.notes} onChange={handleChange} className="w-full bg-white border p-2 rounded-md" rows={3}></textarea></div>
-                <div className="mt-6 flex justify-end gap-3"><button type="button" onClick={onClose} className="bg-gray-200 px-4 py-2 rounded-md">إلغاء</button><button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded-md">حفظ</button></div>
-            </form>
-        </Modal>
-    );
-};
-
-
-// --- FOREMEN PAYMENT SECTION ---
-const ForemenPaymentSection: React.FC<{selectedForemanIds: string[], setSelectedForemanIds: (ids: string[]) => void;}> = ({selectedForemanIds, setSelectedForemanIds}) => {
-    const { foremen, foremanPayments, addForemanPayment, updateForemanPayment, deleteForemanPaymentsBulk } = useAppContext();
-    const { hasPermission } = usePermissions();
-    
-    const canCreate = hasPermission('payments', 'create');
-    const canUpdate = hasPermission('payments', 'update');
-    const canDelete = hasPermission('payments', 'delete');
-    
-    const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-    const [editingPayment, setEditingPayment] = useState<ForemanPayment | null>(null);
-    const [isBulkAddModalOpen, setIsBulkAddModalOpen] = useState(false);
-    const [deleteInfo, setDeleteInfo] = useState<{ ids: string[]; message: string } | null>(null);
-    
-    const printRef = useRef<HTMLDivElement>(null);
-
-    const activeForemen = useMemo(() => foremen.filter(f => f.status === 'active').sort((a,b) => a.name.localeCompare(b.name)), [foremen]);
-    const foremenById = useMemo(() => new Map(foremen.map(f => [f.id, f.name])), [foremen]);
-    
-    const groupedPayments = useMemo(() => {
-        const groups: { [paidMonth: string]: ForemanPayment[] } = {};
-        if (selectedForemanIds.length === 0) return {};
-        
-        const payments = foremanPayments.filter(p => selectedForemanIds.includes(p.foremanId));
-        
-        for (const payment of payments) {
-            if (!groups[payment.paidMonth]) {
-                groups[payment.paidMonth] = [];
-            }
-            groups[payment.paidMonth].push(payment);
-        }
-        return groups;
-    }, [selectedForemanIds, foremanPayments]);
-
-    const sortedMonths = useMemo(() => Object.keys(groupedPayments).sort().reverse(), [groupedPayments]);
-    
-    const handlePrint = () => {
-        if (!printRef.current) return;
-        const printWindow = window.open('', '_blank');
-        if (!printWindow) return;
-        printWindow.document.write(`<html><head><title>طباعة كشوفات حساب الرؤساء</title>
-            <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap" rel="stylesheet" type="text/css">
-            <style>
-                body { font-family: 'Cairo', sans-serif; direction: rtl; }
-                @media print {
-                    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-                    .payment-group { page-break-inside: avoid; }
-                    h3 { text-align: center; font-size: 16pt; margin-bottom: 5px; color: black !important; }
-                    .payment-group-title { font-size: 14pt !important; background-color: #f2f2f2 !important; padding: 5px; margin-top: 20px; text-align: center; }
-                    table { width: 100%; border-collapse: collapse; font-size: 10pt; margin-top: 5px;}
-                    th, td { border: 1px solid #ccc !important; padding: 8px !important; text-align: right; color: black !important; }
-                    th { background-color: #f2f2f2 !important; font-weight: bold; }
-                    .no-print { display: none !important; }
-                }
-            </style>
-        </head><body>`);
-        printWindow.document.write(`<h3 class="main-title">سجل كشوفات الحساب للرؤساء المحددين</h3>`);
-        printWindow.document.write(printRef.current.innerHTML);
-        printWindow.document.write('</body></html>');
-        printWindow.document.close();
-        setTimeout(() => {
-            printWindow.focus();
-            printWindow.print();
-            printWindow.close();
-        }, 500);
-    };
-
-    const handleEdit = (payment: ForemanPayment) => {
-        setEditingPayment(payment);
-        setIsEditModalOpen(true);
-    };
-    
-    const handleDelete = (id: string) => {
-        const payment = foremanPayments.find(p => p.id === id);
-        if (!payment) return;
-        const foremanName = foremenById.get(payment.foremanId) || 'رئيس غير معروف';
-        const monthName = formatPaidMonth(payment.paidMonth);
-        setDeleteInfo({
-            ids: [id],
-            message: `هل أنت متأكد من حذف كشف حساب الرئيس "${foremanName}" لشهر ${monthName}؟`
-        });
-    };
-
-    const handleDeleteGroup = (paymentIds: string[], paidMonth: string) => {
-        const monthName = formatPaidMonth(paidMonth);
-        setDeleteInfo({
-            ids: paymentIds,
-            message: `هل أنت متأكد من حذف جميع كشوفات شهر ${monthName}؟ (${paymentIds.length} كشف)`
-        });
-    };
-
-    const confirmDelete = () => {
-        if (deleteInfo) {
-            deleteForemanPaymentsBulk(deleteInfo.ids);
-            setDeleteInfo(null);
-        }
-    };
-
-    const handleUpdateSave = (data: { date: string, notes?: string, paidMonth: string }) => {
-        if (editingPayment) {
-            updateForemanPayment({ ...editingPayment, ...data });
-        }
-        setIsEditModalOpen(false);
-    };
-
-    const handleBulkAddSave = (data: { date: string, notes?: string, paidMonth: string }) => {
-        selectedForemanIds.forEach(foremanId => {
-            addForemanPayment({ ...data, foremanId });
-        });
-        setIsBulkAddModalOpen(false);
-    };
-    
-    return (
-        <div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4 items-end">
-                <div className="md:col-span-1">
-                    <MultiSelect
-                        label="اختر رئيس أو أكثر"
-                        options={activeForemen}
-                        selectedIds={selectedForemanIds}
-                        onChange={setSelectedForemanIds}
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">ملاحظات (اختياري)</label>
+                    <textarea
+                        value={commonNotes}
+                        onChange={(e) => setCommonNotes(e.target.value)}
+                        className="w-full bg-white border p-2 rounded-md"
+                        rows={3}
                     />
                 </div>
-                <div className="flex gap-2">
-                    {selectedForemanIds.length > 0 && (
-                        <>
-                            <button onClick={() => setIsBulkAddModalOpen(true)} className="w-full bg-blue-600 text-white px-4 py-2.5 rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2">
-                                <PlusCircle size={18} /> تسجيل كشف حساب للمحددين
-                            </button>
-                            <button onClick={handlePrint} className="w-full bg-gray-600 text-white px-4 py-2.5 rounded-lg hover:bg-gray-700 flex items-center justify-center gap-2">
-                                <Printer size={18} /> طباعة السجل
-                            </button>
-                        </>
-                    )}
+                <div className="flex justify-end gap-3 pt-4 border-t">
+                    <button type="button" onClick={onClose} className="bg-gray-200 px-4 py-2 rounded-md hover:bg-gray-300">
+                        إلغاء
+                    </button>
+                    <button
+                        type="submit"
+                        disabled={selectedWorkerIds.length === 0}
+                        className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                        حفظ ({selectedWorkerIds.length})
+                    </button>
                 </div>
-            </div>
-
-             {selectedForemanIds.length > 0 ? (
-                <div ref={printRef} className="mt-4 max-h-[60vh] overflow-y-auto space-y-8 pr-2">
-                    {sortedMonths.length > 0 ? (
-                        sortedMonths.map(month => (
-                            <ForemanPaymentMonthGroup 
-                                key={month}
-                                paidMonth={month}
-                                payments={groupedPayments[month]}
-                                foremenById={foremenById}
-                                onEdit={handleEdit}
-                                onDelete={handleDelete}
-                                onDeleteGroup={handleDeleteGroup}
-                                canUpdate={canUpdate}
-                                canDelete={canDelete}
-                            />
-                        ))
-                    ) : (
-                        <p className="text-center p-8 text-gray-500">لا توجد كشوفات حساب مسجلة للرؤساء المحددين.</p>
-                    )}
-                </div>
-            ) : <p className="text-center p-8 text-gray-500">الرجاء اختيار رئيس أو أكثر لعرض سجل كشوفاتهم.</p>}
-
-            <ForemanPaymentModal
-                isOpen={isBulkAddModalOpen}
-                onClose={() => setIsBulkAddModalOpen(false)}
-                onSave={handleBulkAddSave}
-                payment={null}
-                isBulkMode={true}
-                count={selectedForemanIds.length}
-            />
-            
-            <ForemanPaymentModal
-                isOpen={isEditModalOpen}
-                onClose={() => setIsEditModalOpen(false)}
-                onSave={handleUpdateSave}
-                payment={editingPayment}
-            />
-            
-            <Modal isOpen={!!deleteInfo} onClose={() => setDeleteInfo(null)} title="تأكيد الحذف" size="sm">
-                {deleteInfo && (
-                    <div className="text-center">
-                        <p className="mb-4 text-lg">{deleteInfo.message}</p>
-                        <p className="text-sm text-gray-500 mb-6">لا يمكن التراجع عن هذا الإجراء.</p>
-                        <div className="flex justify-center gap-4">
-                            <button onClick={() => setDeleteInfo(null)} className="bg-gray-200 text-gray-800 px-6 py-2 rounded-md hover:bg-gray-300 font-semibold">إلغاء</button>
-                            <button onClick={confirmDelete} className="bg-red-600 text-white px-6 py-2 rounded-md hover:bg-red-700 font-semibold">نعم، حذف</button>
-                        </div>
-                    </div>
-                )}
-            </Modal>
-        </div>
-    );
-};
-
-interface ForemanPaymentMonthGroupProps {
-    paidMonth: string;
-    payments: ForemanPayment[];
-    foremenById: Map<string, string>;
-    onEdit: (payment: ForemanPayment) => void;
-    onDelete: (id: string) => void;
-    onDeleteGroup: (paymentIds: string[], paidMonth: string) => void;
-    canUpdate: boolean;
-    canDelete: boolean;
-}
-const ForemanPaymentMonthGroup: React.FC<ForemanPaymentMonthGroupProps> = ({ paidMonth, payments, foremenById, onEdit, onDelete, onDeleteGroup, canUpdate, canDelete }) => {
-    const [isTableVisible, setIsTableVisible] = useState(true);
-    const tableTitle = `كشف حساب شهر (${formatPaidMonth(paidMonth)}) - (${paidMonth})`;
-    
-    const sortedPayments = useMemo(() => [...payments].sort((a, b) => (foremenById.get(a.foremanId) || '').localeCompare(foremenById.get(b.foremanId) || '')), [payments, foremenById]);
-    
-    const handlePrintGroup = () => {
-        const tableRows = sortedPayments.map(p => `
-            <tr>
-                <td>${foremenById.get(p.foremanId) || ''}</td>
-                <td>${p.date}</td>
-                <td>${p.notes || ''}</td>
-            </tr>
-        `).join('');
-
-        const tableHTML = `
-            <table>
-                <thead>
-                    <tr><th>اسم الرئيس</th><th>تاريخ الكشف</th><th>ملاحظات</th></tr>
-                </thead>
-                <tbody>${tableRows}</tbody>
-            </table>
-        `;
-        
-        const printWindow = window.open('', '_blank');
-        if (!printWindow) return;
-        printWindow.document.write(`<html><head><title>طباعة ${tableTitle}</title>
-            <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap" rel="stylesheet" type="text/css">
-            <style>
-                body { font-family: 'Cairo', sans-serif; direction: rtl; margin: 15px; }
-                @media print {
-                    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-                    .no-print { display: none !important; }
-                    h3 { text-align: center; font-size: 16pt; margin-bottom: 5px; color: black !important; }
-                    table { width: 100%; border-collapse: collapse; font-size: 10pt; margin-top: 5px;}
-                    th, td { border: 1px solid #ccc !important; padding: 8px !important; text-align: right; color: black !important; }
-                    th { background-color: #f2f2f2 !important; font-weight: bold; }
-                }
-            </style>
-        </head><body>`);
-        printWindow.document.write(`<h3>${tableTitle}</h3>`);
-        printWindow.document.write(tableHTML);
-        printWindow.document.write('</body></html>');
-        printWindow.document.close();
-        setTimeout(() => {
-            printWindow.focus();
-            printWindow.print();
-            printWindow.close();
-        }, 500);
-    };
-    
-    const handleDeleteGroupClick = () => onDeleteGroup(payments.map(p => p.id), paidMonth);
-
-    return (
-        <div className="payment-group border rounded-lg shadow-sm bg-white">
-            <div className={`flex justify-between items-center p-3 cursor-pointer bg-gray-50 hover:bg-gray-100 ${isTableVisible ? 'rounded-t-lg border-b' : 'rounded-lg'}`} onClick={() => setIsTableVisible(!isTableVisible)}>
-                <h3 className="text-lg font-semibold text-gray-800 payment-group-title">{tableTitle}</h3>
-                <div className="flex items-center gap-2 no-print">
-                    <button onClick={(e) => { e.stopPropagation(); handlePrintGroup(); }} className="p-1 text-gray-600 hover:text-gray-800"><Printer size={18} /></button>
-                    {canDelete && <button onClick={(e) => { e.stopPropagation(); handleDeleteGroupClick(); }} className="p-1 text-red-600 hover:text-red-800"><Trash2 size={18} /></button>}
-                    <span className="p-1 text-blue-600">{isTableVisible ? <ChevronUp size={20} /> : <ChevronDown size={20} />}</span>
-                </div>
-            </div>
-            {isTableVisible && <div className="p-2"><table className="w-full text-right">
-                <thead><tr className="bg-gray-100 border-b"><th className="p-3 text-black">اسم الرئيس</th><th className="p-3 text-black">تاريخ الكشف</th><th className="p-3 text-black">ملاحظات</th><th className="p-3 no-print text-black">إجراءات</th></tr></thead>
-                <tbody>{sortedPayments.map(p => (<tr key={p.id} className="border-b">
-                    <td className="p-3 font-medium text-black">{foremenById.get(p.foremanId)}</td>
-                    <td className="p-3 text-black">{p.date}</td><td className="p-3 text-black">{p.notes}</td>
-                    <td className="p-3 no-print"><div className="flex gap-2">
-                        {canUpdate && <button onClick={() => onEdit(p)} className="text-blue-600 hover:text-blue-800 p-1"><Edit size={18}/></button>}
-                        {canDelete && <button onClick={() => onDelete(p.id)} className="text-red-600 hover:text-red-800 p-1"><Trash2 size={18}/></button>}
-                    </div></td></tr>
-                ))}</tbody>
-            </table></div>}
-        </div>
-    );
-};
-
-
-interface ForemanPaymentModalProps { 
-    isOpen: boolean; 
-    onClose: () => void; 
-    onSave: (data: { date: string, notes?: string, paidMonth: string }) => void; 
-    payment: ForemanPayment | null; 
-    isBulkMode?: boolean;
-    count?: number;
-}
-const ForemanPaymentModal: React.FC<ForemanPaymentModalProps> = ({ isOpen, onClose, onSave, payment, isBulkMode = false, count = 0 }) => {
-    const currentYear = new Date().getFullYear();
-    const [formData, setFormData] = useState({ 
-        date: new Date().toISOString().split('T')[0], 
-        notes: '',
-        year: currentYear,
-        month: new Date().getMonth() + 1,
-    });
-    const years = useMemo(() => Array.from({length: 11}, (_, i) => currentYear - 5 + i), [currentYear]);
-    const months = useMemo(() => Array.from({length: 12}, (_, i) => ({ value: i + 1, name: new Date(0, i).toLocaleString('ar-EG', {month: 'long'}) })), []);
-
-    React.useEffect(() => {
-        if (isOpen) {
-            const initialYear = payment?.paidMonth ? parseInt(payment.paidMonth.split('-')[0]) : new Date().getFullYear();
-            const initialMonth = payment?.paidMonth ? parseInt(payment.paidMonth.split('-')[1]) : new Date().getMonth() + 1;
-            setFormData({
-                date: payment?.date || new Date().toISOString().split('T')[0],
-                notes: payment?.notes || '',
-                year: initialYear,
-                month: initialMonth,
-            });
-        }
-    }, [payment, isOpen]);
-    
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-        const { name, value } = e.target;
-        setFormData(p => {
-            const newFormData = { ...p };
-            switch(name as keyof typeof newFormData) {
-                case 'date': newFormData.date = value; break;
-                case 'notes': newFormData.notes = value; break;
-                case 'year': newFormData.year = Number(value); break;
-                case 'month': newFormData.month = Number(value); break;
-            }
-            return newFormData;
-        });
-    };
-
-    const handleSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
-        const paidMonth = `${formData.year}-${String(formData.month).padStart(2, '0')}`;
-        onSave({ date: formData.date, notes: formData.notes, paidMonth });
-    };
-
-    const title = isBulkMode ? `إضافة كشف حساب لـ ${count} رؤساء` : (payment ? 'تعديل كشف حساب' : 'إضافة كشف حساب');
-
-    return (
-        <Modal isOpen={isOpen} onClose={onClose} title={title}>
-            <form onSubmit={handleSubmit} className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                    <div><label className="block text-sm font-medium text-gray-700 mb-1">كشف حساب شهر</label><select name="month" value={formData.month} onChange={handleChange} className="w-full bg-white border p-2 rounded-md">{months.map(m => <option key={m.value} value={m.value}>{m.name}</option>)}</select></div>
-                    <div><label className="block text-sm font-medium text-gray-700 mb-1">سنة</label><select name="year" value={formData.year} onChange={handleChange} className="w-full bg-white border p-2 rounded-md">{years.map(y => <option key={y} value={y}>{y}</option>)}</select></div>
-                </div>
-                <div><label className="block text-sm font-medium text-gray-700 mb-1">تاريخ الكشف الفعلي</label><input type="date" name="date" value={formData.date} onChange={handleChange} className="w-full bg-white border p-2 rounded-md" required /></div>
-                <div><label className="block text-sm font-medium text-gray-700 mb-1">ملاحظات</label><textarea name="notes" value={formData.notes} onChange={handleChange} className="w-full bg-white border p-2 rounded-md" rows={3}></textarea></div>
-                <div className="mt-6 flex justify-end gap-3"><button type="button" onClick={onClose} className="bg-gray-200 px-4 py-2 rounded-md">إلغاء</button><button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded-md">حفظ</button></div>
             </form>
         </Modal>
     );
 };
 
-// --- STATEMENT REPORT SECTION ---
-const StatementReportSection: React.FC = () => {
-    const { 
-        workers,
-        foremen,
-        subcontractors,
-        dailyRecords,
-        subcontractorTransactions,
-        foremanPayments,
-        workerPayments,
-        subcontractorPayments
-    } = useAppContext();
-    
-    const printRef = useRef<HTMLDivElement>(null);
-    const [month, setMonth] = useState(`${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`);
+interface WorkerPaymentEditModalProps {
+    isOpen: boolean;
+    onClose: () => void;
+    onSave: (data: { workerId: string; date: string; notes?: string }[]) => void;
+    payments: WorkerPayment[];
+    workersById: Map<string, string>;
+}
 
-    const monthOptions = useMemo(() => {
-        const months = new Set<string>();
-        workerPayments.forEach(p => months.add(p.paidMonth));
-        subcontractorPayments.forEach(p => months.add(p.paidMonth));
-        foremanPayments.forEach(p => months.add(p.paidMonth));
-        return Array.from(months).sort().reverse();
-    }, [workerPayments, subcontractorPayments, foremanPayments]);
+const WorkerPaymentEditModal: React.FC<WorkerPaymentEditModalProps> = ({ isOpen, onClose, onSave, payments, workersById }) => {
+    const [formData, setFormData] = useState<{ [workerId: string]: { date: string; notes: string } }>({});
 
-    // Report data generation logic would go here, using the selected month
-    // This is a simplified version for demonstration.
-    const reportData = useMemo(() => {
-        // ... complex report generation logic ...
-        return {
-            month,
-            // ... more data
-        };
-    }, [month, workers, dailyRecords /* ... and other dependencies */]);
+    React.useEffect(() => {
+        if (isOpen && payments.length > 0) {
+            const data: { [workerId: string]: { date: string; notes: string } } = {};
+            payments.forEach(p => {
+                data[p.workerId] = { date: p.date, notes: p.notes || '' };
+            });
+            setFormData(data);
+        }
+    }, [isOpen, payments]);
 
-    const handlePrint = () => {
-        // ... print logic ...
+    const handleChange = (workerId: string, field: 'date' | 'notes', value: string) => {
+        setFormData(prev => ({
+            ...prev,
+            [workerId]: { ...prev[workerId], [field]: value }
+        }));
     };
 
-    if (monthOptions.length === 0) {
-        return <p className="text-center p-8 text-gray-500">لا توجد بيانات كشوفات لإنشاء تقرير. الرجاء تسجيل بعض الكشوفات أولاً.</p>;
-    }
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        const data = Object.entries(formData).map(([workerId, values]) => ({
+            workerId,
+            ...values
+        }));
+        onSave(data);
+    };
 
     return (
-        <div>
-            <div className="flex items-center gap-4 mb-4">
-                <label className="font-semibold">اختر شهر التقرير:</label>
-                <select value={month} onChange={e => setMonth(e.target.value)} className="border rounded-md p-2">
-                    {monthOptions.map(m => <option key={m} value={m}>{formatPaidMonth(m)}</option>)}
-                </select>
-                <button onClick={handlePrint} className="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 flex items-center justify-center gap-2">
-                    <Printer size={18} /> طباعة التقرير
-                </button>
-            </div>
-            <div ref={printRef} className="border rounded-lg p-4">
-                <h3 className="text-xl font-bold text-center">تقرير الكشوفات لشهر {formatPaidMonth(month)}</h3>
-                {/* Report content would be rendered here based on reportData */}
-                <p className="text-center p-8 text-gray-500">محتوى التقرير يظهر هنا...</p>
-            </div>
-        </div>
+        <Modal isOpen={isOpen} onClose={onClose} title={`تعديل دفعات (${payments.length} عامل)`} size="lg">
+            <form onSubmit={handleSubmit} className="space-y-4">
+                <div className="max-h-96 overflow-y-auto space-y-3">
+                    {payments.map(payment => (
+                        <div key={payment.id} className="border rounded-md p-3 bg-gray-50">
+                            <h4 className="font-semibold text-gray-800 mb-2">{workersById.get(payment.workerId)}</h4>
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="block text-xs text-gray-600 mb-1">تاريخ القبض</label>
+                                    <input
+                                        type="date"
+                                        value={formData[payment.workerId]?.date || ''}
+                                        onChange={(e) => handleChange(payment.workerId, 'date', e.target.value)}
+                                        className="w-full bg-white border p-2 rounded-md text-sm"
+                                        required
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs text-gray-600 mb-1">ملاحظات</label>
+                                    <input
+                                        type="text"
+                                        value={formData[payment.workerId]?.notes || ''}
+                                        onChange={(e) => handleChange(payment.workerId, 'notes', e.target.value)}
+                                        className="w-full bg-white border p-2 rounded-md text-sm"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+                <div className="flex justify-end gap-3 pt-4 border-t">
+                    <button type="button" onClick={onClose} className="bg-gray-200 px-4 py-2 rounded-md hover:bg-gray-300">
+                        إلغاء
+                    </button>
+                    <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700">
+                        حفظ التعديلات
+                    </button>
+                </div>
+            </form>
+        </Modal>
     );
 };
 
