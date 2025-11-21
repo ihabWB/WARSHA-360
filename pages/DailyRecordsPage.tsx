@@ -59,6 +59,7 @@ const DailyRecordsPage: React.FC = () => {
     const [recordsForDate, setRecordsForDate] = useState<DailyRecord[]>([]);
     const [isSaving, setIsSaving] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
+    const [sortBy, setSortBy] = useState<'project' | 'alphabetical'>('project');
     
     const [saveCount, setSaveCount] = useState(0);
     const [saveCountsByDate, setSaveCountsByDate] = useState<Record<string, number>>({});
@@ -396,8 +397,6 @@ const DailyRecordsPage: React.FC = () => {
     }, [recordsForDate, getWorkerDetails]);
 
     const groupedData = useMemo(() => {
-        const projectGroups: { [key: string]: { projectName: string; records: DailyRecord[] } } = {};
-        
         // تصفية السجلات حسب البحث
         const filteredRecords = recordsForDate.filter(record => {
             if (!searchTerm.trim()) return true;
@@ -411,6 +410,69 @@ const DailyRecordsPage: React.FC = () => {
             
             return workerName.includes(search) || projectName.includes(search);
         });
+
+        // الترتيب الأبجدي
+        if (sortBy === 'alphabetical') {
+            const sortedRecords = [...filteredRecords].sort((a, b) => {
+                const workerA = getWorkerDetails(a.workerId);
+                const workerB = getWorkerDetails(b.workerId);
+                const nameA = workerA?.name || '';
+                const nameB = workerB?.name || '';
+                return nameA.localeCompare(nameB);
+            });
+
+            const calculateSummary = (records: DailyRecord[]) => {
+                return records.reduce((acc, record) => {
+                    const worker = getWorkerDetails(record.workerId);
+                    if (!worker) return acc;
+        
+                    const salary = getSalaryForDate(worker, record.date);
+            
+                    acc.totalWorkDay += record.workDay || 0;
+                    acc.totalOvertimeHours += record.overtimeHours || 0;
+                    acc.totalAdvance += record.advance || 0;
+                    acc.totalSmoking += record.smoking || 0;
+                    acc.totalExpense += record.expense || 0;
+                    
+                    let earnings = 0;
+                    if (record.status !== 'absent') {
+                        if (salary.paymentType === 'hourly') {
+                            earnings = (record.workDay || 0) * salary.hourlyRate;
+                        } else {
+                            const baseRate = salary.paymentType === 'daily' ? salary.dailyRate : (salary.monthlySalary / 30);
+                            earnings += baseRate * (record.workDay || 0);
+                            if (record.status === 'present') {
+                                earnings += (record.overtimeHours || 0) * (salary.overtimeRate || 0);
+                            }
+                        }
+                    }
+        
+                    const totalDeductions = (record.advance || 0) + (record.smoking || 0) + (record.expense || 0);
+                    acc.totalDeductions += totalDeductions;
+                    acc.totalGrossPay += earnings;
+                    acc.totalNetPay += earnings - totalDeductions;
+        
+                    return acc;
+                }, {
+                    totalWorkDay: 0, totalOvertimeHours: 0, totalAdvance: 0, totalSmoking: 0, totalExpense: 0,
+                    totalDeductions: 0, totalGrossPay: 0, totalNetPay: 0,
+                });
+            };
+
+            const grandTotal = calculateSummary(sortedRecords);
+            
+            return {
+                projectGroups: [{
+                    projectName: 'جميع العمال (ترتيب أبجدي)',
+                    records: sortedRecords,
+                    summary: grandTotal
+                }],
+                grandTotal
+            };
+        }
+
+        // الترتيب حسب الورشة
+        const projectGroups: { [key: string]: { projectName: string; records: DailyRecord[] } } = {};
         
         filteredRecords.forEach(record => {
             const worker = getWorkerDetails(record.workerId);
@@ -482,7 +544,7 @@ const DailyRecordsPage: React.FC = () => {
         const grandTotal = calculateSummary(recordsForDate);
     
         return { projectGroups: finalProjectGroups, grandTotal };
-    }, [recordsForDate, projects, getWorkerDetails, searchTerm]);
+    }, [recordsForDate, projects, getWorkerDetails, searchTerm, sortBy]);
     
     const SummaryRow = ({ summary, label, colSpan = 4, isTotal = false }: { summary: any, label: string, colSpan?: number, isTotal?: boolean }) => (
         <tr className={isTotal ? "bg-gray-200 font-bold text-gray-800 border-t-2 border-gray-300" : "bg-gray-100 font-semibold text-gray-700"}>
@@ -600,25 +662,37 @@ const DailyRecordsPage: React.FC = () => {
                     </div>
                 </div>
                 
-                {/* حقل البحث */}
-                <div className="mb-4">
-                    <div className="relative">
-                        <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
+                {/* حقل البحث وقائمة الترتيب */}
+                <div className="mb-4 flex gap-3 items-center">
+                    <div className="relative flex-1 max-w-md">
+                        <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
                         <input
                             type="text"
                             placeholder="ابحث عن عامل أو ورشة..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
-                            className="w-full pr-10 pl-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 bg-white"
+                            className="w-full pr-10 pl-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 bg-white text-sm"
                         />
                         {searchTerm && (
                             <button
                                 onClick={() => setSearchTerm('')}
-                                className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                                className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 text-sm"
                             >
                                 ✕
                             </button>
                         )}
+                    </div>
+                    
+                    <div className="flex items-center gap-2">
+                        <label className="text-sm font-medium text-gray-700 whitespace-nowrap">ترتيب حسب:</label>
+                        <select
+                            value={sortBy}
+                            onChange={(e) => setSortBy(e.target.value as 'project' | 'alphabetical')}
+                            className="border border-gray-300 rounded-lg py-2 px-3 focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 bg-white text-sm"
+                        >
+                            <option value="project">الورشة</option>
+                            <option value="alphabetical">الأبجدي</option>
+                        </select>
                     </div>
                 </div>
                 
