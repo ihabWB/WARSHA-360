@@ -96,6 +96,18 @@ const WorkersPaymentSection: React.FC<WorkersPaymentSectionProps> = ({ selectedW
     const activeWorkers = useMemo(() => workers.filter(w => w.status === 'active').sort((a,b) => a.name.localeCompare(b.name)), [workers]);
     const workersById = useMemo(() => new Map(workers.map(w => [w.id, w.name])), [workers]);
     
+    // قائمة العمال الذين لديهم تواريخ تقبيض
+    const workersWithPayments = useMemo(() => {
+        const workerIds = new Set(workerPayments.map(p => p.workerId));
+        return activeWorkers.filter(w => workerIds.has(w.id));
+    }, [activeWorkers, workerPayments]);
+    
+    // العمال الذين ليس لديهم تواريخ تقبيض
+    const workersWithoutPayments = useMemo(() => {
+        const workerIds = new Set(workerPayments.map(p => p.workerId));
+        return activeWorkers.filter(w => !workerIds.has(w.id));
+    }, [activeWorkers, workerPayments]);
+    
     const groupedPayments = useMemo(() => {
         const groups: { [paidMonth: string]: WorkerPayment[] } = {};
         if (selectedWorkerIds.length === 0) return {};
@@ -216,23 +228,36 @@ const WorkersPaymentSection: React.FC<WorkersPaymentSectionProps> = ({ selectedW
                         options={activeWorkers}
                         selectedIds={selectedWorkerIds}
                         onChange={setSelectedWorkerIds}
+                        highlightedIds={workersWithPayments.map(w => w.id)}
                     />
                 </div>
                 <div className="flex gap-2">
-                    {selectedWorkerIds.length > 0 && (
-                        <>
-                            <button onClick={() => setIsBulkAddModalOpen(true)} className="w-full bg-blue-600 text-white px-4 py-2.5 rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2">
-                                <PlusCircle size={18} /> تسجيل دفعة للمحددين
-                            </button>
-                            <button onClick={handlePrint} className="w-full bg-gray-600 text-white px-4 py-2.5 rounded-lg hover:bg-gray-700 flex items-center justify-center gap-2">
-                                <Printer size={18} /> طباعة السجل
-                            </button>
-                        </>
-                    )}
+                    <button 
+                        onClick={() => setIsBulkAddModalOpen(true)} 
+                        className={`w-full px-4 py-2.5 rounded-lg flex items-center justify-center gap-2 ${
+                            selectedWorkerIds.length > 0 
+                                ? 'bg-blue-600 text-white hover:bg-blue-700' 
+                                : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                        }`}
+                        disabled={selectedWorkerIds.length === 0}
+                    >
+                        <PlusCircle size={18} /> تسجيل دفعة للمحددين
+                    </button>
+                    <button 
+                        onClick={handlePrint} 
+                        className={`w-full px-4 py-2.5 rounded-lg flex items-center justify-center gap-2 ${
+                            selectedWorkerIds.length > 0 
+                                ? 'bg-gray-600 text-white hover:bg-gray-700' 
+                                : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                        }`}
+                        disabled={selectedWorkerIds.length === 0}
+                    >
+                        <Printer size={18} /> طباعة السجل
+                    </button>
                 </div>
             </div>
 
-            {selectedWorkerIds.length > 0 ? (
+            {selectedWorkerIds.length > 0 && (
                 <div ref={printRef} className="mt-4 max-h-[60vh] overflow-y-auto space-y-8 pr-2">
                     {sortedMonths.length > 0 ? (
                         sortedMonths.map(month => (
@@ -252,7 +277,26 @@ const WorkersPaymentSection: React.FC<WorkersPaymentSectionProps> = ({ selectedW
                         <p className="text-center p-8 text-gray-500">لا توجد دفعات مسجلة للعمال المحددين.</p>
                     )}
                 </div>
-            ) : <p className="text-center p-8 text-gray-500">الرجاء اختيار عامل أو أكثر لعرض سجل دفعاتهم أو لتسجيل دفعة جديدة.</p>}
+            )}
+            
+            {/* قائمة العمال الذين لديهم تواريخ تقبيض */}
+            {workersWithPayments.length > 0 && (
+                <div className="mt-6 p-4 bg-stone-50 dark:bg-stone-900 rounded-lg border border-stone-300 dark:border-stone-700">
+                    <h3 className="text-lg font-semibold mb-3 text-stone-700 dark:text-stone-300">
+                        العمال الذين تم تسجيل تواريخ تقبيض لهم ({workersWithPayments.length})
+                    </h3>
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                        {workersWithPayments.map(worker => (
+                            <div 
+                                key={worker.id} 
+                                className="p-2 bg-stone-200 dark:bg-stone-800 text-stone-700 dark:text-stone-300 rounded text-sm font-medium"
+                            >
+                                {worker.name}
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
             
             <WorkerPaymentModal 
                 isOpen={isBulkAddModalOpen}

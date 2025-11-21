@@ -18,12 +18,13 @@ interface MultiSelectProps {
     selectedIds: string[];
     onChange: (selected: string[]) => void;
     disabledIds?: string[];
+    highlightedIds?: string[]; // العناصر التي سيتم تمييزها بلون خاص
     showGroupingToggle?: boolean;
     isGrouped?: boolean;
     onGroupingToggle?: (grouped: boolean) => void;
 }
 
-const MultiSelect: React.FC<MultiSelectProps> = ({ label, options, groups, selectedIds, onChange, disabledIds = [], showGroupingToggle, isGrouped, onGroupingToggle }) => {
+const MultiSelect: React.FC<MultiSelectProps> = ({ label, options, groups, selectedIds, onChange, disabledIds = [], highlightedIds = [], showGroupingToggle, isGrouped, onGroupingToggle }) => {
     const [isOpen, setIsOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState("");
     const groupCheckboxRefs = useRef<(HTMLInputElement | null)[]>([]);
@@ -79,6 +80,7 @@ const MultiSelect: React.FC<MultiSelectProps> = ({ label, options, groups, selec
     const renderOption = (option: Option) => {
         const isSelected = selectedIds.includes(option.id);
         const isDisabled = disabledIds.includes(option.id);
+        const isHighlighted = highlightedIds.includes(option.id);
 
         if (isDisabled) {
             return (
@@ -98,7 +100,14 @@ const MultiSelect: React.FC<MultiSelectProps> = ({ label, options, groups, selec
         }
         
         return (
-            <div key={option.id} className={`flex items-center p-1.5 rounded-md mr-6 ${isSelected ? 'bg-blue-100' : 'hover:bg-gray-100'}`}>
+            <div 
+                key={option.id} 
+                className={`flex items-center p-1.5 rounded-md mr-6 ${
+                    isHighlighted 
+                        ? (isSelected ? 'bg-stone-300 dark:bg-stone-700' : 'bg-stone-200 dark:bg-stone-800 hover:bg-stone-300 dark:hover:bg-stone-700')
+                        : (isSelected ? 'bg-blue-100' : 'hover:bg-gray-100')
+                }`}
+            >
                 <input
                     type="checkbox"
                     id={`${label}-${option.id}`}
@@ -106,8 +115,16 @@ const MultiSelect: React.FC<MultiSelectProps> = ({ label, options, groups, selec
                     onChange={() => toggleOption(option.id)}
                     className="me-3 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                 />
-                <label htmlFor={`${label}-${option.id}`} className={`w-full cursor-pointer ${isSelected ? 'text-blue-800 font-semibold' : 'text-gray-800'}`}>
+                <label 
+                    htmlFor={`${label}-${option.id}`} 
+                    className={`w-full cursor-pointer ${
+                        isHighlighted 
+                            ? 'text-stone-700 dark:text-stone-300 font-medium'
+                            : (isSelected ? 'text-blue-800 font-semibold' : 'text-gray-800')
+                    }`}
+                >
                     {option.name}
+                    {isHighlighted && <span className="text-xs mr-2 text-stone-500 dark:text-stone-400">(تم التسجيل)</span>}
                 </label>
             </div>
         );
@@ -160,7 +177,7 @@ const MultiSelect: React.FC<MultiSelectProps> = ({ label, options, groups, selec
         }
         
         return <div className="text-center text-gray-500 p-4">لا توجد خيارات متاحة.</div>;
-    }, [groups, options, searchTerm, selectedIds, label, disabledIds]);
+    }, [groups, options, searchTerm, selectedIds, label, disabledIds, highlightedIds]);
 
 
     return (
