@@ -109,6 +109,10 @@ const WorkersPage: React.FC = () => {
         console.log('📜 Current salary history:', newHistory);
 
         if (changeDetails.changeType === 'from_date') {
+            // تنظيف السجلات - إزالة أي سجلات غير صحيحة (بدون effectiveDate)
+            newHistory = newHistory.filter(entry => entry.effectiveDate);
+            console.log('🧹 Cleaned salary history:', newHistory);
+            
             // نتحقق: هل يوجد سجل راتب قبل التاريخ المحدد؟
             const hasEntryBeforeDate = newHistory.some(entry => entry.effectiveDate < changeDetails.effectiveDate);
             
