@@ -109,9 +109,11 @@ const WorkersPage: React.FC = () => {
         console.log('📜 Current salary history:', newHistory);
 
         if (changeDetails.changeType === 'from_date') {
-            // إذا كان هذا أول تعديل راتب (ما في salaryHistory)، نحتاج نضيف السجل القديم أولاً
-            if (newHistory.length === 0) {
-                console.log('⚠️ No salary history found, creating base entry');
+            // نتحقق: هل يوجد سجل راتب قبل التاريخ المحدد؟
+            const hasEntryBeforeDate = newHistory.some(entry => entry.effectiveDate < changeDetails.effectiveDate);
+            
+            if (!hasEntryBeforeDate) {
+                console.log('⚠️ No salary entry before the new date, creating base entry');
                 // نضيف سجل الراتب الحالي (القديم) بتاريخ أقدم من تاريخ التعديل
                 const oldestDate = changeDetails.effectiveDate > '2020-01-01' ? '2020-01-01' : '2000-01-01';
                 const oldSalaryEntry: SalaryHistoryEntry = {
@@ -127,6 +129,8 @@ const WorkersPage: React.FC = () => {
                 };
                 newHistory.push(oldSalaryEntry);
                 console.log('✅ Base entry added:', oldSalaryEntry);
+            } else {
+                console.log('✅ Found existing entry before new date, no need for base entry');
             }
             
             const newSalaryEntry: SalaryHistoryEntry = {
