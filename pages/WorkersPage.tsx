@@ -104,6 +104,24 @@ const WorkersPage: React.FC = () => {
         let newHistory = [...(currentWorker.salaryHistory || [])];
 
         if (changeDetails.changeType === 'from_date') {
+            // إذا كان هذا أول تعديل راتب (ما في salaryHistory)، نحتاج نضيف السجل القديم أولاً
+            if (newHistory.length === 0) {
+                // نضيف سجل الراتب الحالي (القديم) بتاريخ أقدم من تاريخ التعديل
+                const oldestDate = changeDetails.effectiveDate > '2020-01-01' ? '2020-01-01' : '2000-01-01';
+                const oldSalaryEntry: SalaryHistoryEntry = {
+                    effectiveDate: oldestDate,
+                    paymentType: currentWorker.paymentType,
+                    dailyRate: currentWorker.dailyRate,
+                    monthlySalary: currentWorker.monthlySalary,
+                    hourlyRate: currentWorker.hourlyRate,
+                    overtimeSystem: currentWorker.overtimeSystem,
+                    divisionFactor: currentWorker.divisionFactor,
+                    overtimeRate: currentWorker.overtimeRate,
+                    notes: 'راتب أساسي (قبل التعديل)',
+                };
+                newHistory.push(oldSalaryEntry);
+            }
+            
             const newSalaryEntry: SalaryHistoryEntry = {
                 effectiveDate: changeDetails.effectiveDate,
                 paymentType: workerData.paymentType,
