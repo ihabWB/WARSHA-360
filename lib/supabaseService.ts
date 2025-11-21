@@ -233,6 +233,33 @@ export const workerService = {
       .single();
     
     if (error) throw error;
+    
+    // Update salary history
+    if (salaryHistory && salaryHistory.length > 0) {
+      // حذف جميع السجلات القديمة
+      await supabase
+        .from('salary_history')
+        .delete()
+        .eq('worker_id', id);
+      
+      // إضافة السجلات الجديدة (فقط الصحيحة)
+      const validHistory = salaryHistory.filter(entry => entry.effectiveDate);
+      if (validHistory.length > 0) {
+        const historySnake = toSnakeCase(
+          validHistory.map(entry => ({
+            ...entry,
+            worker_id: id
+          }))
+        );
+        
+        const { error: historyError } = await supabase
+          .from('salary_history')
+          .insert(historySnake);
+        
+        if (historyError) throw historyError;
+      }
+    }
+    
     return toCamelCase(data) as Worker;
   },
 
