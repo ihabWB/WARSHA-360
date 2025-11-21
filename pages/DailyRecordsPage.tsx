@@ -53,7 +53,8 @@ const DailyRecordsPage: React.FC = () => {
         updateDailyRecords, 
         addPostMonthAdvance,
         updatePostMonthAdvance,
-        deletePostMonthAdvance
+        deletePostMonthAdvance,
+        workerPayments
     } = useAppContext();
     const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
     const [recordsForDate, setRecordsForDate] = useState<DailyRecord[]>([]);
@@ -128,6 +129,34 @@ const DailyRecordsPage: React.FC = () => {
     const getWorkerDetails = useCallback((workerId: string): Worker | undefined => {
         return workers.find(w => w.id === workerId);
     }, [workers]);
+
+    // دالة للحصول على اسم الشهر بالعربية
+    const getMonthName = (month: string) => {
+        const monthNames = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
+        return monthNames[parseInt(month) - 1] || month;
+    };
+
+    // دالة للتحقق من وجود دفعة قبض للعامل في تاريخ محدد
+    const getPaymentForDate = useCallback((workerId: string, date: string) => {
+        return workerPayments.find(payment => 
+            payment.workerId === workerId && payment.date === date
+        );
+    }, [workerPayments]);
+
+    // دالة لإضافة ملاحظة القبض إلى ملاحظات اليومية
+    const appendPaymentNote = (existingNotes: string, payment: any) => {
+        const [year, month] = payment.date.split('-');
+        const monthName = getMonthName(month);
+        let paymentNote = `قبض شهر ${monthName}`;
+        if (payment.notes) {
+            paymentNote += ` (${payment.notes})`;
+        }
+        
+        if (existingNotes && existingNotes.trim()) {
+            return `${existingNotes} | ${paymentNote}`;
+        }
+        return paymentNote;
+    };
 
     useEffect(() => {
         const sessionSaveCount = saveCountsByDate[selectedDate];
@@ -741,11 +770,21 @@ const DailyRecordsPage: React.FC = () => {
                                             const rowClass = getRowClass(record, worker);
                                             const isLastDayOfMonth = new Date(record.date).getDate() === new Date(new Date(record.date).getFullYear(), new Date(record.date).getMonth() + 1, 0).getDate();
                                             const totalDeductions = (record.advance || 0) + (record.smoking || 0) + (record.expense || 0);
+                                            
+                                            // التحقق من وجود دفعة قبض في هذا التاريخ
+                                            const paymentOnThisDate = getPaymentForDate(record.workerId, selectedDate);
+                                            
+                                            // تحديث الملاحظات لتشمل ملاحظة القبض إن وجدت
+                                            const displayNotes = paymentOnThisDate 
+                                                ? appendPaymentNote(record.notes || '', paymentOnThisDate)
+                                                : (record.notes || '');
 
                                             return (
                                                 <tr key={record.id} className={`border-b transition-colors ${rowClass}`}>
-                                                    <td className="p-2 font-medium text-gray-800">
-                                                        <div>{worker.name}</div>
+                                                    <td className="p-2 font-medium">
+                                                        <div className={paymentOnThisDate ? 'text-purple-700 font-bold text-lg' : 'text-gray-800'}>
+                                                            {worker.name}
+                                                        </div>
                                                         <div className="text-xs text-gray-500">
                                                             {salary.paymentType === 'monthly' ? `راتب: ${salary.monthlySalary.toLocaleString()} ₪` : isHourly ? `بالساعة: ${salary.hourlyRate.toFixed(2)} ₪` : `اليومية: ${salary.dailyRate.toFixed(2)} ₪ / ${salary.overtimeRate.toFixed(2)} ₪`}
                                                         </div>
@@ -759,7 +798,19 @@ const DailyRecordsPage: React.FC = () => {
                                                     <td className="p-2"><input type="number" value={record.smoking || ''} onChange={(e) => handleRecordChange(record.workerId, 'smoking', Number(e.target.value))} className={`${inputClass} w-24 text-center`} min="0" /></td>
                                                     <td className="p-2"><input type="number" value={record.expense || ''} onChange={(e) => handleRecordChange(record.workerId, 'expense', Number(e.target.value))} className={`${inputClass} w-24 text-center`} min="0" /></td>
                                                     <td className="p-2 font-bold text-red-800 text-center">{totalDeductions.toFixed(2)}</td>
-                                                    <td className="p-2"><div className="flex items-center gap-1"><input type="text" value={record.notes || ''} onChange={(e) => handleRecordChange(record.workerId, 'notes', e.target.value)} className={inputClass} placeholder="ملاحظات..." /><button onClick={() => openNotesModal(record)} className="p-1.5 text-gray-500 hover:text-blue-600 flex-shrink-0" title="إضافة ملاحظات طويلة"><MessageSquare size={18} /></button></div></td>
+                                                    <td className="p-2">
+                                                        <div className="flex items-center gap-1">
+                                                            <input 
+                                                                type="text" 
+                                                                value={displayNotes} 
+                                                                onChange={(e) => handleRecordChange(record.workerId, 'notes', e.target.value)} 
+                                                                className={`${inputClass} ${paymentOnThisDate ? 'bg-purple-50 border-purple-300 font-medium' : ''}`}
+                                                                placeholder="ملاحظات..." 
+                                                                title={paymentOnThisDate ? `تم القبض في هذا التاريخ` : ''}
+                                                            />
+                                                            <button onClick={() => openNotesModal(record)} className="p-1.5 text-gray-500 hover:text-blue-600 flex-shrink-0" title="إضافة ملاحظات طويلة"><MessageSquare size={18} /></button>
+                                                        </div>
+                                                    </td>
                                                     <td className="p-2 font-bold text-center"><span className={netPay < 0 ? 'text-red-600' : 'text-green-700'}>{netPay.toFixed(2)} ₪</span></td>
                                                 </tr>
                                             );
