@@ -1311,60 +1311,189 @@ const ForemenSplitReportComponent = ({ data }: { data: any }) => {
         <div className="space-y-8">
             {hasData ? (
                 <>
-                    {data.foremenReportData.map((foremanData: any, index: number) => (
-                        <div key={index} className="report-section p-4 border rounded-lg" style={{ pageBreakAfter: 'always' }}>
-                            <h3 className="text-2xl font-bold mb-4 text-center text-black">تقرير الرئيس: {foremanData.foremanName}</h3>
-                            <table className="w-full text-right text-sm">
-                                <thead>
-                                    <tr className="bg-gray-100 border-b">
-                                        <th className="p-2 font-semibold text-gray-600">التاريخ</th>
-                                        <th className="p-2 font-semibold text-gray-600">النوع</th>
-                                        <th className="p-2 font-semibold text-gray-600">الوصف</th>
-                                        <th className="p-2 font-semibold text-gray-600">الورشة</th>
-                                        <th className="p-2 font-semibold text-gray-600">المبلغ</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {foremanData.transactions.map((row: any, i: number) => (
-                                        <tr key={i} className={`border-b hover:bg-gray-50 ${row.type === 'statement' ? 'bg-yellow-100 dark:bg-yellow-900/30 font-bold' : ''}`}>
-                                            <td className="p-2 text-gray-800">{row.date}</td>
-                                            <td className="p-2 text-gray-800">{row.type === 'expense' ? 'مصروف' : row.type === 'advance' ? 'سلفة' : row.type === 'statement' ? 'كشف حساب' : 'أخرى'}</td>
-                                            <td className="p-2 text-gray-800">{row.description}</td>
-                                            <td className="p-2 text-gray-800">{row.projectName}</td>
-                                            <td className={`p-2 font-bold ${row.amount > 0 ? 'text-red-600' : 'text-gray-800'}`}>{row.type !== 'statement' ? `${formatNum(row.amount)} ₪` : '-'}</td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                                <tfoot>
-                                    <tr className="total-summary-row bg-gray-200">
-                                        <td colSpan={4} className="p-2 text-center font-bold text-black">الإجمالي</td>
-                                        <td className={`p-2 font-bold text-red-600`}>{formatNum(foremanData.total)} ₪</td>
-                                    </tr>
-                                </tfoot>
-                            </table>
-                        </div>
-                    ))}
+                    {data.foremenReportData.map((foremanData: any, index: number) => {
+                        // تقسيم المعاملات حسب النوع
+                        const expenses = foremanData.transactions.filter((t: any) => t.type === 'expense');
+                        const advances = foremanData.transactions.filter((t: any) => t.type === 'advance');
+                        const others = foremanData.transactions.filter((t: any) => t.type === 'other');
+                        const statements = foremanData.transactions.filter((t: any) => t.type === 'statement');
+                        
+                        const expensesTotal = expenses.reduce((sum: number, t: any) => sum + t.amount, 0);
+                        const advancesTotal = advances.reduce((sum: number, t: any) => sum + t.amount, 0);
+                        const othersTotal = others.reduce((sum: number, t: any) => sum + t.amount, 0);
+                        
+                        return (
+                            <div key={index} className="report-section p-4 border rounded-lg" style={{ pageBreakAfter: 'always' }}>
+                                <h3 className="text-2xl font-bold mb-4 text-center text-black">تقرير الرئيس: {foremanData.foremanName}</h3>
+                                
+                                {/* جدول المصاريف */}
+                                {expenses.length > 0 && (
+                                    <div className="mb-6">
+                                        <h4 className="text-lg font-bold mb-2 text-black">المصاريف</h4>
+                                        <table className="w-full text-right text-sm">
+                                            <thead>
+                                                <tr className="bg-blue-100 border-b">
+                                                    <th className="p-2 font-semibold text-gray-700">التاريخ</th>
+                                                    <th className="p-2 font-semibold text-gray-700">الوصف</th>
+                                                    <th className="p-2 font-semibold text-gray-700">الورشة</th>
+                                                    <th className="p-2 font-semibold text-gray-700">المبلغ</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {expenses.map((row: any, i: number) => (
+                                                    <tr key={i} className="border-b hover:bg-gray-50">
+                                                        <td className="p-2 text-gray-800">{row.date}</td>
+                                                        <td className="p-2 text-gray-800">{row.description}</td>
+                                                        <td className="p-2 text-gray-800">{row.projectName}</td>
+                                                        <td className="p-2 font-bold text-red-600">{formatNum(row.amount)} ₪</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                            <tfoot>
+                                                <tr className="bg-blue-200">
+                                                    <td colSpan={3} className="p-2 text-center font-bold text-black">الإجمالي</td>
+                                                    <td className="p-2 font-bold text-red-600">{formatNum(expensesTotal)} ₪</td>
+                                                </tr>
+                                            </tfoot>
+                                        </table>
+                                    </div>
+                                )}
+                                
+                                {/* جدول السلف */}
+                                {advances.length > 0 && (
+                                    <div className="mb-6">
+                                        <h4 className="text-lg font-bold mb-2 text-black">السلف</h4>
+                                        <table className="w-full text-right text-sm">
+                                            <thead>
+                                                <tr className="bg-green-100 border-b">
+                                                    <th className="p-2 font-semibold text-gray-700">التاريخ</th>
+                                                    <th className="p-2 font-semibold text-gray-700">الوصف</th>
+                                                    <th className="p-2 font-semibold text-gray-700">الورشة</th>
+                                                    <th className="p-2 font-semibold text-gray-700">المبلغ</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {advances.map((row: any, i: number) => (
+                                                    <tr key={i} className="border-b hover:bg-gray-50">
+                                                        <td className="p-2 text-gray-800">{row.date}</td>
+                                                        <td className="p-2 text-gray-800">{row.description}</td>
+                                                        <td className="p-2 text-gray-800">{row.projectName}</td>
+                                                        <td className="p-2 font-bold text-red-600">{formatNum(row.amount)} ₪</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                            <tfoot>
+                                                <tr className="bg-green-200">
+                                                    <td colSpan={3} className="p-2 text-center font-bold text-black">الإجمالي</td>
+                                                    <td className="p-2 font-bold text-red-600">{formatNum(advancesTotal)} ₪</td>
+                                                </tr>
+                                            </tfoot>
+                                        </table>
+                                    </div>
+                                )}
+                                
+                                {/* جدول المصاريف الأخرى */}
+                                {others.length > 0 && (
+                                    <div className="mb-6">
+                                        <h4 className="text-lg font-bold mb-2 text-black">مصاريف أخرى</h4>
+                                        <table className="w-full text-right text-sm">
+                                            <thead>
+                                                <tr className="bg-purple-100 border-b">
+                                                    <th className="p-2 font-semibold text-gray-700">التاريخ</th>
+                                                    <th className="p-2 font-semibold text-gray-700">الوصف</th>
+                                                    <th className="p-2 font-semibold text-gray-700">الورشة</th>
+                                                    <th className="p-2 font-semibold text-gray-700">المبلغ</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {others.map((row: any, i: number) => (
+                                                    <tr key={i} className="border-b hover:bg-gray-50">
+                                                        <td className="p-2 text-gray-800">{row.date}</td>
+                                                        <td className="p-2 text-gray-800">{row.description}</td>
+                                                        <td className="p-2 text-gray-800">{row.projectName}</td>
+                                                        <td className="p-2 font-bold text-red-600">{formatNum(row.amount)} ₪</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                            <tfoot>
+                                                <tr className="bg-purple-200">
+                                                    <td colSpan={3} className="p-2 text-center font-bold text-black">الإجمالي</td>
+                                                    <td className="p-2 font-bold text-red-600">{formatNum(othersTotal)} ₪</td>
+                                                </tr>
+                                            </tfoot>
+                                        </table>
+                                    </div>
+                                )}
+                                
+                                {/* جدول كشوف الحساب */}
+                                {statements.length > 0 && (
+                                    <div className="mb-6">
+                                        <h4 className="text-lg font-bold mb-2 text-black">كشوف الحساب</h4>
+                                        <table className="w-full text-right text-sm">
+                                            <thead>
+                                                <tr className="bg-yellow-200 border-b">
+                                                    <th className="p-2 font-semibold text-gray-700">التاريخ</th>
+                                                    <th className="p-2 font-semibold text-gray-700">الوصف</th>
+                                                    <th className="p-2 font-semibold text-gray-700" colSpan={2}>ملاحظات</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {statements.map((row: any, i: number) => (
+                                                    <tr key={i} className="border-b bg-yellow-100">
+                                                        <td className="p-2 text-gray-800">{row.date}</td>
+                                                        <td className="p-2 text-gray-800 font-bold">{row.description}</td>
+                                                        <td className="p-2 text-gray-600" colSpan={2}>-</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                )}
+                                
+                                {/* إجمالي الرئيس */}
+                                <div className="mt-4 p-3 bg-gray-300 font-bold text-lg text-center text-black">
+                                    إجمالي {foremanData.foremanName}: {formatNum(foremanData.total)} ₪
+                                </div>
+                            </div>
+                        );
+                    })}
 
+                    {/* الصفحة الأخيرة - الملخص النهائي */}
                     <div className="report-section p-4 border rounded-lg" style={{ pageBreakBefore: 'always' }}>
                          <h3 className="text-2xl font-bold mb-4 text-center text-black">الملخص النهائي لجميع الرؤساء</h3>
                          <table className="w-full text-right">
                             <thead>
                                 <tr className="bg-gray-100 border-b">
                                     <th className="p-3 font-semibold text-gray-600">الرئيس</th>
-                                    <th className="p-3 font-semibold text-gray-600">الإجمالي الكلي</th>
+                                    <th className="p-3 font-semibold text-gray-600">المصاريف</th>
+                                    <th className="p-3 font-semibold text-gray-600">السلف</th>
+                                    <th className="p-3 font-semibold text-gray-600">أخرى</th>
+                                    <th className="p-3 font-semibold text-gray-600">الإجمالي</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {data.foremenReportData.map((row: any, index: number) => (
-                                    <tr key={index} className="border-b hover:bg-gray-50">
-                                        <td className="p-3 font-bold text-gray-800">{row.foremanName}</td>
-                                        <td className="p-3 font-bold text-red-600">{formatNum(row.total)} ₪</td>
-                                    </tr>
-                                ))}
+                                {data.foremenReportData.map((row: any, index: number) => {
+                                    const expenses = row.transactions.filter((t: any) => t.type === 'expense').reduce((sum: number, t: any) => sum + t.amount, 0);
+                                    const advances = row.transactions.filter((t: any) => t.type === 'advance').reduce((sum: number, t: any) => sum + t.amount, 0);
+                                    const others = row.transactions.filter((t: any) => t.type === 'other').reduce((sum: number, t: any) => sum + t.amount, 0);
+                                    
+                                    return (
+                                        <tr key={index} className="border-b hover:bg-gray-50">
+                                            <td className="p-3 font-bold text-gray-800">{row.foremanName}</td>
+                                            <td className="p-3 text-red-600">{formatNum(expenses)} ₪</td>
+                                            <td className="p-3 text-red-600">{formatNum(advances)} ₪</td>
+                                            <td className="p-3 text-red-600">{formatNum(others)} ₪</td>
+                                            <td className="p-3 font-bold text-red-600">{formatNum(row.total)} ₪</td>
+                                        </tr>
+                                    );
+                                })}
                             </tbody>
                             <tfoot>
                                 <tr className="total-summary-row">
-                                    <td className="p-3 text-center text-black">الإجمالي الكلي لكل شيء</td>
+                                    <td className="p-3 text-center text-black font-bold">الإجمالي الكلي</td>
+                                    <td className="p-3 font-bold text-red-600">{formatNum(data.foremenReportData.reduce((sum: number, row: any) => sum + row.transactions.filter((t: any) => t.type === 'expense').reduce((s: number, t: any) => s + t.amount, 0), 0))} ₪</td>
+                                    <td className="p-3 font-bold text-red-600">{formatNum(data.foremenReportData.reduce((sum: number, row: any) => sum + row.transactions.filter((t: any) => t.type === 'advance').reduce((s: number, t: any) => s + t.amount, 0), 0))} ₪</td>
+                                    <td className="p-3 font-bold text-red-600">{formatNum(data.foremenReportData.reduce((sum: number, row: any) => sum + row.transactions.filter((t: any) => t.type === 'other').reduce((s: number, t: any) => s + t.amount, 0), 0))} ₪</td>
                                     <td className="p-3 font-bold text-red-600 text-lg">{formatNum(data.grandTotal)} ₪</td>
                                 </tr>
                             </tfoot>
