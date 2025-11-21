@@ -406,8 +406,13 @@ const DailyRecordsPage: React.FC = () => {
             else if (record.status === 'absent') acc.absentCount++;
             else if (record.status === 'paid-leave') acc.paidLeaveCount++;
             
+            // حساب مجموع الساعات الإضافية
+            if (record.overtimeHours && record.overtimeHours > 0) {
+                acc.totalOvertimeHours += record.overtimeHours;
+            }
+            
             return acc;
-        }, { presentCount: 0, absentCount: 0, paidLeaveCount: 0 });
+        }, { presentCount: 0, absentCount: 0, paidLeaveCount: 0, totalOvertimeHours: 0 });
     }, [recordsForDate, getWorkerDetails]);
 
     const groupedData = useMemo(() => {
@@ -656,6 +661,10 @@ const DailyRecordsPage: React.FC = () => {
                             <div className="bg-blue-100 text-blue-800 p-2 rounded-lg min-w-[70px]">
                                 <div className="font-bold text-xl">{dailyStatsHeader.paidLeaveCount}</div>
                                 <div className="text-sm">إجازة</div>
+                            </div>
+                            <div className="bg-orange-100 text-orange-800 p-2 rounded-lg min-w-[70px]">
+                                <div className="font-bold text-xl">{dailyStatsHeader.totalOvertimeHours.toFixed(1)}</div>
+                                <div className="text-sm">ساعات إضافية</div>
                             </div>
                         </div>
 
