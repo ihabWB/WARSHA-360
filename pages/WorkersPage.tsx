@@ -195,6 +195,7 @@ const WorkersPage: React.FC = () => {
             operatingNumber: workerData.operatingNumber,
             role: workerData.role,
             phone: workerData.phone,
+            status: workerData.status || currentWorker.status,
             defaultProjectId: workerData.defaultProjectId,
             salaryHistory: newHistory,
             // نبقي الحقول الرئيسية كما هي أو نأخذها من أول سجل في التاريخ
@@ -561,6 +562,53 @@ const WorkerFormModal: React.FC<WorkerFormModalProps> = ({ isOpen, onClose, work
                                 placeholder="مثال: علاوة سنوية، ترقية، تعديل حسب الأداء" 
                                 className={inputClass} 
                             />
+                        </div>
+                    </div>
+                )}
+
+                {/* عرض تاريخ الرواتب */}
+                {worker && worker.salaryHistory && worker.salaryHistory.length > 0 && (
+                    <div className="mt-4 pt-4 border-t">
+                        <h4 className="font-semibold text-lg mb-3 text-gray-800 dark:text-gray-200">📜 تاريخ الرواتب</h4>
+                        <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
+                            <div className="space-y-2">
+                                {worker.salaryHistory
+                                    .filter(entry => entry.effectiveDate)
+                                    .sort((a, b) => a.effectiveDate.localeCompare(b.effectiveDate))
+                                    .map((entry, index) => (
+                                        <div 
+                                            key={index} 
+                                            className={`p-3 rounded-md ${index === 0 ? 'bg-green-50 dark:bg-green-900/20 border-r-4 border-green-500' : 'bg-white dark:bg-gray-700'}`}
+                                        >
+                                            <div className="flex justify-between items-start">
+                                                <div className="flex-1">
+                                                    <div className="flex items-center gap-2 mb-1">
+                                                        <span className="font-semibold text-gray-700 dark:text-gray-300">
+                                                            📅 {new Date(entry.effectiveDate).toLocaleDateString('ar-EG')}
+                                                        </span>
+                                                        {index === 0 && (
+                                                            <span className="text-xs bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 px-2 py-1 rounded">
+                                                                الراتب الأساسي
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    <div className="text-sm text-gray-600 dark:text-gray-400">
+                                                        {entry.paymentType === 'daily' && `💰 ${entry.dailyRate} ₪ / يوم`}
+                                                        {entry.paymentType === 'monthly' && `💰 ${entry.monthlySalary} ₪ / شهر`}
+                                                        {entry.paymentType === 'hourly' && `💰 ${entry.hourlyRate} ₪ / ساعة`}
+                                                        {entry.overtimeRate > 0 && ` | ⏰ ${entry.overtimeRate.toFixed(2)} ₪ / ساعة إضافية`}
+                                                    </div>
+                                                    {entry.notes && (
+                                                        <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                                            📝 {entry.notes}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))
+                                }
+                            </div>
                         </div>
                     </div>
                 )}
