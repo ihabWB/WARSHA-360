@@ -297,6 +297,8 @@ interface MonthSectionProps {
 const MonthSection: React.FC<MonthSectionProps> = ({ year, month, payments, workersById, onAdd, onEdit, onDelete, canCreate, canUpdate, canDelete }) => {
     const [isMonthExpanded, setIsMonthExpanded] = useState(false);
     const [selectedPaymentIds, setSelectedPaymentIds] = useState<string[]>([]);
+    const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
+    const [showUnpaidWorkers, setShowUnpaidWorkers] = useState(true);
 
     const sortedPayments = useMemo(() => {
         return [...payments].sort((a, b) => {
@@ -340,6 +342,15 @@ const MonthSection: React.FC<MonthSectionProps> = ({ year, month, payments, work
                     </span>
                 </div>
                 <div className="flex items-center gap-2">
+                    {payments.length > 0 && (
+                        <button
+                            onClick={(e) => { e.stopPropagation(); setIsPrintModalOpen(true); }}
+                            className="bg-green-600 text-white px-3 py-1.5 rounded-md hover:bg-green-700 flex items-center gap-1 text-sm"
+                        >
+                            <Printer size={16} />
+                            <span>طباعة</span>
+                        </button>
+                    )}
                     {canCreate && (
                         <button
                             onClick={(e) => { e.stopPropagation(); onAdd(); }}
@@ -352,6 +363,19 @@ const MonthSection: React.FC<MonthSectionProps> = ({ year, month, payments, work
                     {isMonthExpanded ? <ChevronUp size={20} className="text-blue-600" /> : <ChevronDown size={20} className="text-gray-400" />}
                 </div>
             </div>
+
+            {isPrintModalOpen && (
+                <PrintSettingsModal
+                    isOpen={isPrintModalOpen}
+                    onClose={() => setIsPrintModalOpen(false)}
+                    year={year}
+                    month={month}
+                    payments={payments}
+                    workersById={workersById}
+                    showUnpaidWorkers={showUnpaidWorkers}
+                    setShowUnpaidWorkers={setShowUnpaidWorkers}
+                />
+            )}
 
             {isMonthExpanded && (
                 <div className="p-4">
@@ -455,6 +479,207 @@ const MonthSection: React.FC<MonthSectionProps> = ({ year, month, payments, work
                 </div>
             )}
         </div>
+    );
+};
+
+interface PrintSettingsModalProps {
+    isOpen: boolean;
+    onClose: () => void;
+    year: string;
+    month: string;
+    payments: WorkerPayment[];
+    workersById: Map<string, string>;
+    showUnpaidWorkers: boolean;
+    setShowUnpaidWorkers: (value: boolean) => void;
+}
+
+const PrintSettingsModal: React.FC<PrintSettingsModalProps> = ({ isOpen, onClose, year, month, payments, workersById, showUnpaidWorkers, setShowUnpaidWorkers }) => {
+    const { workers, dailyRecords } = useAppContext();
+
+    const handlePrint = () => {
+        const paidWorkerIds = new Set(payments.map(p => p.workerId));
+        const activeWorkers = workers.filter(w => w.status === 'active');
+        
+        let printWorkers = activeWorkers.map(worker => {
+            const payment = payments.find(p => p.workerId === worker.id);
+            const workerRecords = dailyRecords.filter(r => 
+                r.workerId === worker.id && 
+                r.date.startsWith(`${year}-${month}`)
+            );
+            const totalDays = workerRecords.length;
+            
+            return {
+                id: worker.id,
+                name: worker.name,
+                dailyWage: totalDays,
+                notes: payment?.notes || '',
+                hasPaid: !!payment
+            };
+        });
+
+        if (!showUnpaidWorkers) {
+            printWorkers = printWorkers.filter(w => w.hasPaid);
+        }
+
+        const printContent = `
+            <!DOCTYPE html>
+            <html dir="rtl">
+            <head>
+                <meta charset="UTF-8">
+                <title>كشف قبض ${getMonthName(month)} ${year}</title>
+                <style>
+                    @media print {
+                        @page { margin: 1cm; }
+                        body { margin: 0; }
+                    }
+                    body {
+                        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                        direction: rtl;
+                        padding: 20px;
+                    }
+                    .header {
+                        text-align: center;
+                        margin-bottom: 30px;
+                        border-bottom: 3px solid #333;
+                        padding-bottom: 15px;
+                    }
+                    .header h1 {
+                        margin: 0;
+                        font-size: 28px;
+                        color: #1a1a1a;
+                    }
+                    .header h2 {
+                        margin: 10px 0 0 0;
+                        font-size: 18px;
+                        color: #555;
+                        font-weight: normal;
+                    }
+                    table {
+                        width: 100%;
+                        border-collapse: collapse;
+                        margin-top: 20px;
+                    }
+                    th, td {
+                        border: 1px solid #333;
+                        padding: 12px 8px;
+                        text-align: right;
+                    }
+                    th {
+                        background-color: #f0f0f0;
+                        font-weight: bold;
+                        font-size: 14px;
+                    }
+                    td {
+                        font-size: 13px;
+                    }
+                    .daily-wage {
+                        color: #666;
+                        font-size: 11px;
+                        margin-right: 8px;
+                    }
+                    .paid-row {
+                        background-color: #d4edda;
+                    }
+                    .unpaid-row {
+                        background-color: white;
+                    }
+                    .col-number { width: 40px; text-align: center; }
+                    .col-name { width: 35%; }
+                    .col-payment { width: 15%; }
+                    .col-deductions { width: 15%; }
+                    .col-notes { width: 25%; }
+                </style>
+            </head>
+            <body>
+                <div class="header">
+                    <h1>كشف قبض العمال</h1>
+                    <h2>${getMonthName(month)} ${year}</h2>
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th class="col-number">#</th>
+                            <th class="col-name">الاسم</th>
+                            <th class="col-payment">القبض</th>
+                            <th class="col-deductions">الخصوم</th>
+                            <th class="col-notes">الملاحظات</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${printWorkers.map((worker, index) => `
+                            <tr class="${worker.hasPaid ? 'paid-row' : 'unpaid-row'}">
+                                <td class="col-number">${index + 1}</td>
+                                <td class="col-name">
+                                    ${worker.name}
+                                    ${worker.dailyWage > 0 ? `<span class="daily-wage">(${worker.dailyWage} يوم)</span>` : ''}
+                                </td>
+                                <td class="col-payment"></td>
+                                <td class="col-deductions"></td>
+                                <td class="col-notes">${worker.notes}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </body>
+            </html>
+        `;
+
+        const printWindow = window.open('', '_blank');
+        if (printWindow) {
+            printWindow.document.write(printContent);
+            printWindow.document.close();
+            printWindow.focus();
+            setTimeout(() => {
+                printWindow.print();
+            }, 250);
+        }
+        onClose();
+    };
+
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} title="إعدادات الطباعة" size="md">
+            <div className="space-y-4">
+                <div className="border rounded-md p-4 bg-gray-50">
+                    <label className="flex items-center gap-3 cursor-pointer">
+                        <input
+                            type="checkbox"
+                            checked={showUnpaidWorkers}
+                            onChange={(e) => setShowUnpaidWorkers(e.target.checked)}
+                            className="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <div>
+                            <div className="font-medium text-gray-800">إظهار العمال الذين لم يتم تقبيضهم</div>
+                            <div className="text-sm text-gray-600">سيتم إظهار جميع العمال النشطين (المقبوض منهم بخلفية خضراء)</div>
+                        </div>
+                    </label>
+                </div>
+                <div className="text-sm text-gray-600 bg-blue-50 border border-blue-200 rounded-md p-3">
+                    <strong>ملاحظة:</strong> ستحتوي الطباعة على:
+                    <ul className="mr-5 mt-2 space-y-1">
+                        <li>• اسم العامل مع عدد أيام الحضور في الشهر</li>
+                        <li>• عمود فارغ للقبض</li>
+                        <li>• عمود فارغ للخصوم</li>
+                        <li>• عمود الملاحظات (إن وجدت)</li>
+                    </ul>
+                </div>
+                <div className="flex justify-end gap-3 pt-4 border-t">
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        className="bg-gray-200 px-4 py-2 rounded-md hover:bg-gray-300"
+                    >
+                        إلغاء
+                    </button>
+                    <button
+                        onClick={handlePrint}
+                        className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 flex items-center gap-2"
+                    >
+                        <Printer size={18} />
+                        <span>طباعة</span>
+                    </button>
+                </div>
+            </div>
+        </Modal>
     );
 };
 
