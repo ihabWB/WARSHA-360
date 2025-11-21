@@ -606,6 +606,11 @@ const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({ isOpen, onClose, fo
             alert('المبلغ يجب أن يكون أكبر من صفر');
             return;
         }
+        // التحقق من اختيار الورشة فقط إذا لم تكن الحركة سلفة
+        if (formData.type !== 'advance' && !formData.projectId) {
+            alert('يرجى اختيار الورشة');
+            return;
+        }
         onSave(formData);
     };
 
@@ -630,9 +635,9 @@ const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({ isOpen, onClose, fo
                 </div>
                 <div><label className={labelClass}>المبلغ (₪)</label><input type="number" name="amount" value={formData.amount || ''} onChange={handleChange} className={inputClass} required min="0.01" step="0.01" disabled={isStatement}/></div>
                  <div>
-                    <label className={labelClass}>الورشة</label>
-                    <select name="projectId" value={formData.projectId} onChange={handleChange} className={inputClass} required disabled={isStatement}>
-                        <option value="" disabled>-- اختر ورشة --</option>
+                    <label className={labelClass}>الورشة {formData.type === 'advance' && <span className="text-sm text-gray-500">(اختياري)</span>}</label>
+                    <select name="projectId" value={formData.projectId} onChange={handleChange} className={inputClass} required={formData.type !== 'advance'} disabled={isStatement}>
+                        <option value="">-- اختر ورشة --</option>
                         {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                     </select>
                 </div>
