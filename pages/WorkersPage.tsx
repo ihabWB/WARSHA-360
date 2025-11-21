@@ -402,24 +402,55 @@ const WorkerFormModal: React.FC<WorkerFormModalProps> = ({ isOpen, onClose, work
 
 
                 {worker && (
-                     <div className="mt-4 pt-4 border-t">
-                        <h4 className="font-semibold text-lg mb-2 text-gray-800">تعديل الأجرة</h4>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                     <div className="mt-4 pt-4 border-t bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg">
+                        <h4 className="font-semibold text-lg mb-3 text-gray-800 dark:text-gray-200">تعديل الأجرة</h4>
+                        
+                        {/* تنبيه توضيحي */}
+                        <div className="mb-4 p-3 bg-yellow-50 dark:bg-yellow-900/30 border-r-4 border-yellow-400 rounded">
+                            <p className="text-sm text-yellow-800 dark:text-yellow-200">
+                                ⚠️ <strong>مهم:</strong> عند تعديل الراتب، اختر التاريخ الذي تريد أن يبدأ منه التعديل. 
+                                التعديلات السابقة للتاريخ المحدد ستبقى كما هي.
+                            </p>
+                        </div>
+
+                        <div className="grid grid-cols-1 gap-4">
                             <div>
-                                <label className={labelClass}>نوع التغيير</label>
+                                <label className={labelClass}>تاريخ بداية الراتب الجديد <span className="text-red-500">*</span></label>
+                                <input 
+                                    type="date" 
+                                    name="changeEffectiveDate" 
+                                    value={formData.changeEffectiveDate} 
+                                    onChange={handleChange} 
+                                    className={`${inputClass} ${formData.changeType === 'retroactive' ? 'opacity-50' : 'border-blue-500 border-2'}`}
+                                    required 
+                                    disabled={formData.changeType === 'retroactive'} 
+                                />
+                                <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                                    {formData.changeType === 'from_date' 
+                                        ? `الراتب الجديد سيطبق من ${formData.changeEffectiveDate} وصاعداً` 
+                                        : 'التعديل سيؤثر على كل السجلات بأثر رجعي'}
+                                </p>
+                            </div>
+                            
+                            <div>
+                                <label className={labelClass}>نوع التعديل</label>
                                 <select name="changeType" value={formData.changeType} onChange={handleChange} className={inputClass}>
-                                    <option value="from_date">إضافة تغيير جديد في الراتب (من تاريخ محدد وصاعداً)</option>
-                                    <option value="retroactive">تعديل الراتب الأساسي (يؤثر على كل التاريخ بأثر رجعي)</option>
+                                    <option value="from_date">✅ تعديل من تاريخ محدد (موصى به)</option>
+                                    <option value="retroactive">⚠️ تعديل بأثر رجعي على كل التاريخ</option>
                                 </select>
                             </div>
-                            <div>
-                                <label className={labelClass}>تاريخ سريان التغيير</label>
-                                <input type="date" name="changeEffectiveDate" value={formData.changeEffectiveDate} onChange={handleChange} className={inputClass} required disabled={formData.changeType === 'retroactive'} />
-                            </div>
                         </div>
+                        
                         <div className="mt-4">
-                            <label className={labelClass}>سبب التغيير / ملاحظات (اختياري)</label>
-                            <input type="text" name="changeReason" value={formData.changeReason} onChange={handleChange} placeholder="مثال: علاوة سنوية" className={inputClass} />
+                            <label className={labelClass}>سبب التعديل (اختياري)</label>
+                            <input 
+                                type="text" 
+                                name="changeReason" 
+                                value={formData.changeReason} 
+                                onChange={handleChange} 
+                                placeholder="مثال: علاوة سنوية، ترقية، تعديل حسب الأداء" 
+                                className={inputClass} 
+                            />
                         </div>
                     </div>
                 )}
