@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAppContext } from '../context/AppContext';
 import type { Worker, SalaryHistoryEntry, Project } from '../types';
 import { getSalaryForDate } from '../lib/salaryUtils';
@@ -11,6 +11,49 @@ const WorkersPage: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingWorker, setEditingWorker] = useState<Worker | null>(null);
   const [activeTab, setActiveTab] = useState<'active' | 'suspended'>('active');
+  const [migrationDone, setMigrationDone] = useState(false);
+
+  // Migration: إضافة salaryHistory للعمال القدامى
+  useEffect(() => {
+    if (migrationDone || workers.length === 0) return;
+
+    const workersNeedingMigration = workers.filter(w => !w.salaryHistory || w.salaryHistory.length === 0);
+    
+    if (workersNeedingMigration.length > 0) {
+      console.log(`🔄 Migration: Found ${workersNeedingMigration.length} workers without salary history`);
+      
+      const migrateWorkers = async () => {
+        for (const worker of workersNeedingMigration) {
+          try {
+            const initialSalaryEntry: SalaryHistoryEntry = {
+              effectiveDate: '2020-01-01', // تاريخ افتراضي قديم
+              paymentType: worker.paymentType,
+              dailyRate: worker.dailyRate || 0,
+              monthlySalary: worker.monthlySalary || 0,
+              hourlyRate: worker.hourlyRate || 0,
+              overtimeSystem: worker.overtimeSystem || 'automatic',
+              divisionFactor: worker.divisionFactor || 8,
+              overtimeRate: worker.overtimeRate || 0,
+              notes: 'راتب أساسي (تم الترحيل تلقائياً)',
+            };
+            
+            await updateWorker({
+              ...worker,
+              salaryHistory: [initialSalaryEntry],
+            });
+          } catch (err) {
+            console.error(`❌ Migration failed for worker ${worker.name}:`, err);
+          }
+        }
+        console.log('✅ Migration completed');
+        setMigrationDone(true);
+      };
+      
+      migrateWorkers();
+    } else {
+      setMigrationDone(true);
+    }
+  }, [workers, updateWorker, migrationDone]);
 
   const activeWorkers = workers.filter(w => w.status === 'active');
   const suspendedWorkers = workers.filter(w => w.status === 'suspended');
@@ -106,8 +149,10 @@ const WorkersPage: React.FC = () => {
             }
         }
 
-        const latestSalary = getSalaryForDate({ ...currentWorker, salaryHistory: newHistory }, new Date().toISOString().split('T')[0]);
-
+        // لا نقوم بتحديث الحقول الرئيسية للعامل (dailyRate, monthlySalary, إلخ)
+        // لأنها تستخدم فقط كـ fallback للبيانات القديمة
+        // التاريخ الفعلي يتم تخزينه في salaryHistory
+        
         const updatedWorker: Worker = {
             ...currentWorker,
             name: workerData.name,
@@ -116,14 +161,42 @@ const WorkersPage: React.FC = () => {
             role: workerData.role,
             phone: workerData.phone,
             defaultProjectId: workerData.defaultProjectId,
-            ...latestSalary,
             salaryHistory: newHistory,
+            // نبقي الحقول الرئيسية كما هي أو نأخذها من أول سجل في التاريخ
+            ...(newHistory.length > 0 ? {
+                paymentType: newHistory[0].paymentType,
+                dailyRate: newHistory[0].dailyRate,
+                monthlySalary: newHistory[0].monthlySalary,
+                hourlyRate: newHistory[0].hourlyRate,
+                overtimeSystem: newHistory[0].overtimeSystem,
+                divisionFactor: newHistory[0].divisionFactor,
+                overtimeRate: newHistory[0].overtimeRate,
+            } : {}),
         };
         await updateWorker(updatedWorker);
       } else {
         // Add new worker
         console.log('🔄 Adding new worker:', workerData);
-        await addWorker(workerData);
+        
+        // عند إضافة عامل جديد، نقوم بإنشاء سجل تاريخ راتب أولي
+        const initialSalaryEntry: SalaryHistoryEntry = {
+            effectiveDate: new Date().toISOString().split('T')[0],
+            paymentType: workerData.paymentType,
+            dailyRate: workerData.dailyRate,
+            monthlySalary: workerData.monthlySalary,
+            hourlyRate: workerData.hourlyRate,
+            overtimeSystem: workerData.overtimeSystem,
+            divisionFactor: workerData.divisionFactor,
+            overtimeRate: workerData.overtimeRate,
+            notes: 'راتب أساسي',
+        };
+        
+        const newWorkerWithHistory = {
+            ...workerData,
+            salaryHistory: [initialSalaryEntry],
+        };
+        
+        await addWorker(newWorkerWithHistory);
         console.log('✅ Worker added successfully');
       }
       
