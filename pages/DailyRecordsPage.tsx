@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useAppContext } from '../context/AppContext';
 import type { DailyRecord, Worker, Project } from '../types';
 import { getSalaryForDate } from '../lib/salaryUtils';
-import { Save, MessageSquare, Check, Users, CalendarPlus, Edit, Trash2 } from 'lucide-react';
+import { Save, MessageSquare, Check, Users, CalendarPlus, Edit, Trash2, Search } from 'lucide-react';
 import Modal from '../components/Modal';
 import MultiSelect from '../components/MultiSelect';
 import { v4 as uuidv4 } from 'uuid';
@@ -58,6 +58,7 @@ const DailyRecordsPage: React.FC = () => {
     const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
     const [recordsForDate, setRecordsForDate] = useState<DailyRecord[]>([]);
     const [isSaving, setIsSaving] = useState(false);
+    const [searchTerm, setSearchTerm] = useState('');
     
     const [saveCount, setSaveCount] = useState(0);
     const [saveCountsByDate, setSaveCountsByDate] = useState<Record<string, number>>({});
@@ -397,7 +398,21 @@ const DailyRecordsPage: React.FC = () => {
     const groupedData = useMemo(() => {
         const projectGroups: { [key: string]: { projectName: string; records: DailyRecord[] } } = {};
         
-        recordsForDate.forEach(record => {
+        // تصفية السجلات حسب البحث
+        const filteredRecords = recordsForDate.filter(record => {
+            if (!searchTerm.trim()) return true;
+            
+            const worker = getWorkerDetails(record.workerId);
+            if (!worker) return false;
+            
+            const workerName = worker.name.toLowerCase();
+            const projectName = (projects.find(p => p.id === record.projectId)?.name || '').toLowerCase();
+            const search = searchTerm.toLowerCase();
+            
+            return workerName.includes(search) || projectName.includes(search);
+        });
+        
+        filteredRecords.forEach(record => {
             const worker = getWorkerDetails(record.workerId);
             if (!worker) return;
 
@@ -467,7 +482,7 @@ const DailyRecordsPage: React.FC = () => {
         const grandTotal = calculateSummary(recordsForDate);
     
         return { projectGroups: finalProjectGroups, grandTotal };
-    }, [recordsForDate, projects, getWorkerDetails]);
+    }, [recordsForDate, projects, getWorkerDetails, searchTerm]);
     
     const SummaryRow = ({ summary, label, colSpan = 4, isTotal = false }: { summary: any, label: string, colSpan?: number, isTotal?: boolean }) => (
         <tr className={isTotal ? "bg-gray-200 font-bold text-gray-800 border-t-2 border-gray-300" : "bg-gray-100 font-semibold text-gray-700"}>
@@ -582,6 +597,28 @@ const DailyRecordsPage: React.FC = () => {
                                 ))}
                             </div>
                         </div>
+                    </div>
+                </div>
+                
+                {/* حقل البحث */}
+                <div className="mb-4">
+                    <div className="relative">
+                        <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
+                        <input
+                            type="text"
+                            placeholder="ابحث عن عامل أو ورشة..."
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            className="w-full pr-10 pl-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 bg-white"
+                        />
+                        {searchTerm && (
+                            <button
+                                onClick={() => setSearchTerm('')}
+                                className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                            >
+                                ✕
+                            </button>
+                        )}
                     </div>
                 </div>
                 
@@ -778,7 +815,7 @@ const BulkRecordModal: React.FC<BulkRecordModalProps> = ({ isOpen, onClose, onAp
     const workerGroups = useMemo(() => {
         if (!workers || !projects) return [];
 
-        const projectMap = new Map(projects.map(p => [p.id, p.name]));
+        const projectMap = new Map<string, string>(projects.map(p => [p.id, p.name]));
         const groups: { [key: string]: { label: string; options: Worker[] } } = {};
         const unassigned: Worker[] = [];
 
@@ -787,7 +824,7 @@ const BulkRecordModal: React.FC<BulkRecordModalProps> = ({ isOpen, onClose, onAp
                 const projectId = worker.defaultProjectId;
                 if (!groups[projectId]) {
                     groups[projectId] = {
-                        label: projectMap.get(projectId)!,
+                        label: projectMap.get(projectId) || '',
                         options: []
                     };
                 }
