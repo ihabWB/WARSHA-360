@@ -719,6 +719,12 @@ const generateDailySummaryReport = (context: ReportContext, filters: ReportFilte
         data.push(formatRow(grandTotalRaw, data.length));
     }
 
+    // Create workerMap for notes display
+    const workerMapForNotes = new Map();
+    summaryMap.forEach((data, workerId) => {
+        workerMapForNotes.set(workerId, { id: workerId, name: data.workerName });
+    });
+
     return {
         columns: [
             { header: '#', accessor: 'seq' },
@@ -733,7 +739,7 @@ const generateDailySummaryReport = (context: ReportContext, filters: ReportFilte
             { header: 'صافي الراتب', accessor: 'netSalary' },
         ],
         data,
-        summary: showNotes ? { notesMap, workerMap: Array.from(summaryMap.entries()).map(([id, data]) => ({ id, name: data.workerName })) } : undefined,
+        summary: showNotes ? { notesMap, workerMap: workerMapForNotes } : undefined,
         title: 'التقرير الملخص لليوميات'
     };
 };
