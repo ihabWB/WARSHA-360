@@ -236,15 +236,29 @@ export const workerService = {
     
     // Update salary history
     if (salaryHistory && salaryHistory.length > 0) {
-      // حذف جميع السجلات القديمة
-      await supabase
-        .from('salary_history')
-        .delete()
-        .eq('worker_id', id);
+      // تنظيف السجلات - إزالة السجلات غير الصحيحة وإنشاء سجلات جديدة نظيفة
+      const validHistory = salaryHistory
+        .filter(entry => entry.effectiveDate)
+        .map(entry => ({
+          effectiveDate: entry.effectiveDate,
+          paymentType: entry.paymentType,
+          dailyRate: entry.dailyRate,
+          monthlySalary: entry.monthlySalary,
+          hourlyRate: entry.hourlyRate,
+          overtimeSystem: entry.overtimeSystem,
+          divisionFactor: entry.divisionFactor,
+          overtimeRate: entry.overtimeRate,
+          notes: entry.notes || ''
+        }));
       
-      // إضافة السجلات الجديدة (فقط الصحيحة)
-      const validHistory = salaryHistory.filter(entry => entry.effectiveDate);
       if (validHistory.length > 0) {
+        // حذف جميع السجلات القديمة
+        await supabase
+          .from('salary_history')
+          .delete()
+          .eq('worker_id', id);
+        
+        // إضافة السجلات الجديدة
         const historySnake = toSnakeCase(
           validHistory.map(entry => ({
             ...entry,

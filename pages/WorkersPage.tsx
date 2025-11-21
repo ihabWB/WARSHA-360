@@ -65,10 +65,12 @@ const WorkersPage: React.FC = () => {
     { header: 'الوظيفة', accessor: 'role' as keyof Worker },
     { header: 'الورشة الافتراضية', accessor: 'defaultProjectId' as keyof Worker, render: (item: Worker) => item.defaultProjectId ? projectMap.get(item.defaultProjectId) : '---' },
     { header: 'نظام الدفع', accessor: 'paymentType' as keyof Worker, render: (item: Worker) => item.paymentType === 'monthly' ? 'شهري' : item.paymentType === 'hourly' ? 'ساعات' : 'يومية' },
-    { header: 'الأجرة', accessor: 'dailyRate' as keyof Worker, render: (item: Worker) => {
-        if (item.paymentType === 'monthly') return `${item.monthlySalary} ₪ / شهر`;
-        if (item.paymentType === 'hourly') return `${item.hourlyRate} ₪ / ساعة`;
-        return `${item.dailyRate} ₪ / يوم`;
+    { header: 'الأجرة الحالية', accessor: 'dailyRate' as keyof Worker, render: (item: Worker) => {
+        // الحصول على الراتب الحالي من التاريخ
+        const currentSalary = getSalaryForDate(item, new Date().toISOString().split('T')[0]);
+        if (currentSalary.paymentType === 'monthly') return `${currentSalary.monthlySalary} ₪ / شهر`;
+        if (currentSalary.paymentType === 'hourly') return `${currentSalary.hourlyRate} ₪ / ساعة`;
+        return `${currentSalary.dailyRate} ₪ / يوم`;
     }},
     { header: 'الهاتف', accessor: 'phone' as keyof Worker },
   ];
