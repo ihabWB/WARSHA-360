@@ -1803,10 +1803,25 @@ export const ReportsPage: React.FC = () => {
                         .text-orange-600 { color: #ea580c !important; }
                         .bg-orange-100 { background-color: #ffedd5 !important; }
                         .bg-orange-50 { background-color: #fff7ed !important; }
+                        
+                        /* Notes Display Styles */
+                        .notes-section { margin-top: 2rem; padding-top: 1rem; border-top: 4px solid #2563eb; }
+                        .notes-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 0.75rem; margin-top: 1rem; }
+                        .worker-note-card { border: 2px solid #d1d5db; border-radius: 8px; padding: 0.75rem; background-color: white; page-break-inside: avoid; }
+                        .worker-note-header { font-weight: bold; font-size: 1.1em; margin-bottom: 0.5rem; color: #1d4ed8; border-bottom: 1px solid #d1d5db; padding-bottom: 0.25rem; }
+                        .note-item { padding: 0.5rem; margin-bottom: 0.5rem; border-radius: 4px; border: 1px solid #e5e7eb; }
+                        .note-item.has-payment { background-color: #fce7f3 !important; border-color: #f9a8d4; }
+                        .note-item.no-payment { background-color: #f9fafb !important; border-color: #e5e7eb; }
+                        .note-date { font-size: 0.85em; font-weight: 600; color: #374151; }
+                        .note-text { font-size: 0.85em; color: #111827; margin-top: 0.25rem; }
+                        
                          @media print {
                             body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
                             .report-section { border: none; padding: 0; margin-bottom: 0.5rem; }
                             .report-section:last-of-type { page-break-after: auto !important; }
+                            .notes-grid { grid-template-columns: repeat(4, 1fr); }
+                            .worker-note-card { break-inside: avoid; }
+                            .note-item.has-payment { background-color: #fce7f3 !important; }
                          }
                     </style>
                 </head>
@@ -1869,19 +1884,19 @@ export const ReportsPage: React.FC = () => {
                 
                 {/* Worker Notes Display for Daily Summary Report */}
                 {activeReport === 'daily' && dailyReportSubType === 'summary' && showNotes && reportData.summary?.notesMap && (
-                    <div className="mt-8 p-4 border-t-4 border-blue-600">
+                    <div className="notes-section mt-8 p-4 border-t-4 border-blue-600">
                         <h3 className="text-xl font-bold mb-4 text-center text-gray-800">الملاحظات الخاصة للعمال</h3>
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                        <div className="notes-grid grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                             {Array.from(reportData.summary.notesMap.entries()).map(([workerId, notes]: [string, any[]]) => {
                                 const worker = reportData.summary.workerMap.get(workerId);
                                 return (
-                                    <div key={workerId} className="border-2 border-gray-300 rounded-lg p-3 bg-white shadow-sm">
-                                        <div className="font-bold text-lg mb-2 text-blue-700 border-b pb-1">{worker?.name || 'عامل غير معروف'}</div>
+                                    <div key={workerId} className="worker-note-card border-2 border-gray-300 rounded-lg p-3 bg-white shadow-sm">
+                                        <div className="worker-note-header font-bold text-lg mb-2 text-blue-700 border-b pb-1">{worker?.name || 'عامل غير معروف'}</div>
                                         <div className="space-y-2">
                                             {notes.map((note, idx) => (
-                                                <div key={idx} className={`p-2 rounded ${note.hasPayment ? 'bg-pink-100 border-pink-300' : 'bg-gray-50 border-gray-200'} border`}>
-                                                    <div className="text-sm font-semibold text-gray-700">{note.date}</div>
-                                                    <div className="text-sm text-gray-900 mt-1">{note.notes}</div>
+                                                <div key={idx} className={`note-item ${note.hasPayment ? 'has-payment' : 'no-payment'} p-2 rounded border`}>
+                                                    <div className="note-date text-sm font-semibold text-gray-700">{note.date}</div>
+                                                    <div className="note-text text-sm text-gray-900 mt-1">{note.notes}</div>
                                                 </div>
                                             ))}
                                         </div>
