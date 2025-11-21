@@ -591,13 +591,13 @@ const generateDailySummaryReport = (context: ReportContext, filters: ReportFilte
         }
         const entry = summaryMap.get(r.workerId);
         
-        // جمع الملاحظات
+        // جمع الملاحظات - كل الملاحظات ونميز التي تحتوي على "قبض"
         if (showNotes && r.notes && r.notes.trim()) {
-            const payment = workerPayments?.find(p => p.workerId === r.workerId && p.date === r.date);
+            const hasPaymentNote = r.notes.includes('قبض شهر');
             notesMap.get(r.workerId)?.push({
                 date: r.date,
                 notes: r.notes,
-                hasPayment: !!payment
+                hasPayment: hasPaymentNote
             });
         }
         
