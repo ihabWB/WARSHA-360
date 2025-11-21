@@ -681,7 +681,7 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, foreman, e
                     </thead>
                     <tbody>
                         {sortedExpensesForDisplay.map(e => (
-                            <tr key={e.id} className={`border-b ${e.type === 'statement' ? 'bg-orange-100 font-bold' : ''}`}>
+                            <tr key={e.id} className={`border-b ${e.type === 'statement' ? 'bg-yellow-100 dark:bg-yellow-900/30 font-bold' : ''}`}>
                                 <td className="p-2 text-black">{e.date}</td>
                                 <td className="p-2 text-black">{e.type === 'expense' ? 'مصروف' : e.type === 'advance' ? 'سلفة' : e.type === 'statement' ? 'كشف حساب' : 'أخرى'}</td>
                                 <td className="p-2 text-black">{e.description}</td>

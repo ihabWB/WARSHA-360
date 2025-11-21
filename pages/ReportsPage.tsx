@@ -1326,7 +1326,7 @@ const ForemenSplitReportComponent = ({ data }: { data: any }) => {
                                 </thead>
                                 <tbody>
                                     {foremanData.transactions.map((row: any, i: number) => (
-                                        <tr key={i} className={`border-b hover:bg-gray-50 ${row.type === 'statement' ? 'bg-orange-100 font-bold' : ''}`}>
+                                        <tr key={i} className={`border-b hover:bg-gray-50 ${row.type === 'statement' ? 'bg-yellow-100 dark:bg-yellow-900/30 font-bold' : ''}`}>
                                             <td className="p-2 text-gray-800">{row.date}</td>
                                             <td className="p-2 text-gray-800">{row.type === 'expense' ? 'مصروف' : row.type === 'advance' ? 'سلفة' : row.type === 'statement' ? 'كشف حساب' : 'أخرى'}</td>
                                             <td className="p-2 text-gray-800">{row.description}</td>
