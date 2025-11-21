@@ -90,23 +90,12 @@ const WorkersPaymentSection: React.FC<WorkersPaymentSectionProps> = ({ selectedW
     const [editingPayment, setEditingPayment] = useState<WorkerPayment | null>(null);
     const [isBulkAddModalOpen, setIsBulkAddModalOpen] = useState(false);
     const [deleteInfo, setDeleteInfo] = useState<{ ids: string[]; message: string } | null>(null);
+    const [currentPaidMonth, setCurrentPaidMonth] = useState('');
     
     const printRef = useRef<HTMLDivElement>(null);
 
     const activeWorkers = useMemo(() => workers.filter(w => w.status === 'active').sort((a,b) => a.name.localeCompare(b.name)), [workers]);
     const workersById = useMemo(() => new Map(workers.map(w => [w.id, w.name])), [workers]);
-    
-    // قائمة العمال الذين لديهم تواريخ تقبيض
-    const workersWithPayments = useMemo(() => {
-        const workerIds = new Set(workerPayments.map(p => p.workerId));
-        return activeWorkers.filter(w => workerIds.has(w.id));
-    }, [activeWorkers, workerPayments]);
-    
-    // العمال الذين ليس لديهم تواريخ تقبيض
-    const workersWithoutPayments = useMemo(() => {
-        const workerIds = new Set(workerPayments.map(p => p.workerId));
-        return activeWorkers.filter(w => !workerIds.has(w.id));
-    }, [activeWorkers, workerPayments]);
     
     const groupedPayments = useMemo(() => {
         const groups: { [paidMonth: string]: WorkerPayment[] } = {};
@@ -216,6 +205,7 @@ const WorkersPaymentSection: React.FC<WorkersPaymentSectionProps> = ({ selectedW
         selectedWorkerIds.forEach(workerId => {
             addWorkerPayment({ ...data, workerId });
         });
+        setCurrentPaidMonth(paidMonth);
         setIsBulkAddModalOpen(false);
     };
 
@@ -228,32 +218,20 @@ const WorkersPaymentSection: React.FC<WorkersPaymentSectionProps> = ({ selectedW
                         options={activeWorkers}
                         selectedIds={selectedWorkerIds}
                         onChange={setSelectedWorkerIds}
-                        highlightedIds={workersWithPayments.map(w => w.id)}
+                        disabledIds={currentPaidMonth ? workerPayments.filter(p => p.paidMonth === currentPaidMonth).map(p => p.workerId) : []}
                     />
                 </div>
                 <div className="flex gap-2">
-                    <button 
-                        onClick={() => setIsBulkAddModalOpen(true)} 
-                        className={`w-full px-4 py-2.5 rounded-lg flex items-center justify-center gap-2 ${
-                            selectedWorkerIds.length > 0 
-                                ? 'bg-blue-600 text-white hover:bg-blue-700' 
-                                : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                        }`}
-                        disabled={selectedWorkerIds.length === 0}
-                    >
-                        <PlusCircle size={18} /> تسجيل دفعة للمحددين
-                    </button>
-                    <button 
-                        onClick={handlePrint} 
-                        className={`w-full px-4 py-2.5 rounded-lg flex items-center justify-center gap-2 ${
-                            selectedWorkerIds.length > 0 
-                                ? 'bg-gray-600 text-white hover:bg-gray-700' 
-                                : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                        }`}
-                        disabled={selectedWorkerIds.length === 0}
-                    >
-                        <Printer size={18} /> طباعة السجل
-                    </button>
+                    {selectedWorkerIds.length > 0 && (
+                        <>
+                            <button onClick={() => setIsBulkAddModalOpen(true)} className="w-full bg-blue-600 text-white px-4 py-2.5 rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2">
+                                <PlusCircle size={18} /> تسجيل دفعة للمحددين
+                            </button>
+                            <button onClick={handlePrint} className="w-full bg-gray-600 text-white px-4 py-2.5 rounded-lg hover:bg-gray-700 flex items-center justify-center gap-2">
+                                <Printer size={18} /> طباعة السجل
+                            </button>
+                        </>
+                    )}
                 </div>
             </div>
 
@@ -274,28 +252,13 @@ const WorkersPaymentSection: React.FC<WorkersPaymentSectionProps> = ({ selectedW
                             />
                         ))
                     ) : (
-                        <p className="text-center p-8 text-gray-500">لا توجد دفعات مسجلة للعمال المحددين.</p>
+                        <p className="text-center p-8 text-gray-500">لا توجد دفعات مسجلة للعمال المحددين بعد. يمكنك تسجيل دفعة جديدة باستخدام الزر أعلاه.</p>
                     )}
                 </div>
             )}
             
-            {/* قائمة العمال الذين لديهم تواريخ تقبيض */}
-            {workersWithPayments.length > 0 && (
-                <div className="mt-6 p-4 bg-stone-50 dark:bg-stone-900 rounded-lg border border-stone-300 dark:border-stone-700">
-                    <h3 className="text-lg font-semibold mb-3 text-stone-700 dark:text-stone-300">
-                        العمال الذين تم تسجيل تواريخ تقبيض لهم ({workersWithPayments.length})
-                    </h3>
-                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
-                        {workersWithPayments.map(worker => (
-                            <div 
-                                key={worker.id} 
-                                className="p-2 bg-stone-200 dark:bg-stone-800 text-stone-700 dark:text-stone-300 rounded text-sm font-medium"
-                            >
-                                {worker.name}
-                            </div>
-                        ))}
-                    </div>
-                </div>
+            {selectedWorkerIds.length === 0 && (
+                <p className="text-center p-8 text-gray-500">الرجاء اختيار عامل أو أكثر لعرض سجل دفعاتهم أو لتسجيل دفعة جديدة.</p>
             )}
             
             <WorkerPaymentModal 
@@ -305,6 +268,7 @@ const WorkersPaymentSection: React.FC<WorkersPaymentSectionProps> = ({ selectedW
                 payment={null}
                 isBulkMode={true}
                 count={selectedWorkerIds.length}
+                onMonthChange={setCurrentPaidMonth}
             />
             
             <WorkerPaymentModal 
@@ -462,8 +426,9 @@ interface WorkerPaymentModalProps {
     payment: WorkerPayment | null; 
     isBulkMode?: boolean;
     count?: number;
+    onMonthChange?: (month: string) => void;
 }
-const WorkerPaymentModal: React.FC<WorkerPaymentModalProps> = ({ isOpen, onClose, onSave, payment, isBulkMode = false, count = 0 }) => {
+const WorkerPaymentModal: React.FC<WorkerPaymentModalProps> = ({ isOpen, onClose, onSave, payment, isBulkMode = false, count = 0, onMonthChange }) => {
     const currentYear = new Date().getFullYear();
     const [formData, setFormData] = useState({ 
         date: new Date().toISOString().split('T')[0], 
@@ -496,8 +461,18 @@ const WorkerPaymentModal: React.FC<WorkerPaymentModalProps> = ({ isOpen, onClose
             switch(name as keyof typeof newFormData) {
                 case 'date': newFormData.date = value; break;
                 case 'notes': newFormData.notes = value; break;
-                case 'year': newFormData.year = Number(value); break;
-                case 'month': newFormData.month = Number(value); break;
+                case 'year': 
+                    newFormData.year = Number(value);
+                    if (onMonthChange && isBulkMode) {
+                        onMonthChange(`${Number(value)}-${String(newFormData.month).padStart(2, '0')}`);
+                    }
+                    break;
+                case 'month': 
+                    newFormData.month = Number(value);
+                    if (onMonthChange && isBulkMode) {
+                        onMonthChange(`${newFormData.year}-${String(Number(value)).padStart(2, '0')}`);
+                    }
+                    break;
             }
             return newFormData;
         });

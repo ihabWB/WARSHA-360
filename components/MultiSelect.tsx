@@ -18,13 +18,12 @@ interface MultiSelectProps {
     selectedIds: string[];
     onChange: (selected: string[]) => void;
     disabledIds?: string[];
-    highlightedIds?: string[]; // العناصر التي سيتم تمييزها بلون خاص
     showGroupingToggle?: boolean;
     isGrouped?: boolean;
     onGroupingToggle?: (grouped: boolean) => void;
 }
 
-const MultiSelect: React.FC<MultiSelectProps> = ({ label, options, groups, selectedIds, onChange, disabledIds = [], highlightedIds = [], showGroupingToggle, isGrouped, onGroupingToggle }) => {
+const MultiSelect: React.FC<MultiSelectProps> = ({ label, options, groups, selectedIds, onChange, disabledIds = [], showGroupingToggle, isGrouped, onGroupingToggle }) => {
     const [isOpen, setIsOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState("");
     const groupCheckboxRefs = useRef<(HTMLInputElement | null)[]>([]);
@@ -77,37 +76,29 @@ const MultiSelect: React.FC<MultiSelectProps> = ({ label, options, groups, selec
         });
     }, [selectedIds, groups, disabledIds]);
 
-    const renderOption = (option: Option) => {
+    const renderOption = (option: Option, showDisabled: boolean = false) => {
         const isSelected = selectedIds.includes(option.id);
         const isDisabled = disabledIds.includes(option.id);
-        const isHighlighted = highlightedIds.includes(option.id);
 
         if (isDisabled) {
             return (
-                <div key={option.id} className="flex items-center p-1.5 rounded-md mr-6 bg-gray-200 opacity-75">
+                <div key={option.id} className="flex items-center p-1.5 rounded-md mr-6 bg-amber-50 border border-amber-200">
                     <input
                         type="checkbox"
                         id={`${label}-${option.id}`}
                         checked={true}
                         disabled={true}
-                        className="me-3 h-4 w-4 rounded border-gray-400 text-gray-400 focus:ring-gray-300 cursor-not-allowed"
+                        className="me-3 h-4 w-4 rounded border-amber-400 text-amber-600 focus:ring-amber-300 cursor-not-allowed"
                     />
-                    <label htmlFor={`${label}-${option.id}`} className="w-full cursor-not-allowed text-gray-500">
-                        {option.name} (تم التسجيل)
+                    <label htmlFor={`${label}-${option.id}`} className="w-full cursor-not-allowed text-amber-700 font-medium">
+                        {option.name} ✓ تم التسجيل
                     </label>
                 </div>
             );
         }
         
         return (
-            <div 
-                key={option.id} 
-                className={`flex items-center p-1.5 rounded-md mr-6 ${
-                    isHighlighted 
-                        ? (isSelected ? 'bg-stone-300 dark:bg-stone-700' : 'bg-stone-200 dark:bg-stone-800 hover:bg-stone-300 dark:hover:bg-stone-700')
-                        : (isSelected ? 'bg-blue-100' : 'hover:bg-gray-100')
-                }`}
-            >
+            <div key={option.id} className={`flex items-center p-1.5 rounded-md mr-6 ${isSelected ? 'bg-blue-100' : 'hover:bg-gray-100'}`}>
                 <input
                     type="checkbox"
                     id={`${label}-${option.id}`}
@@ -115,16 +106,8 @@ const MultiSelect: React.FC<MultiSelectProps> = ({ label, options, groups, selec
                     onChange={() => toggleOption(option.id)}
                     className="me-3 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                 />
-                <label 
-                    htmlFor={`${label}-${option.id}`} 
-                    className={`w-full cursor-pointer ${
-                        isHighlighted 
-                            ? 'text-stone-700 dark:text-stone-300 font-medium'
-                            : (isSelected ? 'text-blue-800 font-semibold' : 'text-gray-800')
-                    }`}
-                >
+                <label htmlFor={`${label}-${option.id}`} className={`w-full cursor-pointer ${isSelected ? 'text-blue-800 font-semibold' : 'text-gray-800'}`}>
                     {option.name}
-                    {isHighlighted && <span className="text-xs mr-2 text-stone-500 dark:text-stone-400">(تم التسجيل)</span>}
                 </label>
             </div>
         );
@@ -140,6 +123,10 @@ const MultiSelect: React.FC<MultiSelectProps> = ({ label, options, groups, selec
                 if (filteredGroupOptions.length === 0 && !group.label.toLowerCase().includes(searchTerm.toLowerCase())) {
                     return null;
                 }
+
+                // فصل الخيارات إلى نشطة ومسجلة
+                const activeOptions = filteredGroupOptions.filter(opt => !disabledIds.includes(opt.id));
+                const disabledOptions = filteredGroupOptions.filter(opt => disabledIds.includes(opt.id));
 
                 const groupOptionIds = group.options.map(o => o.id).filter(id => !disabledIds.includes(id));
                 const isAllSelected = groupOptionIds.length > 0 && groupOptionIds.every(id => selectedIds.includes(id));
@@ -160,7 +147,13 @@ const MultiSelect: React.FC<MultiSelectProps> = ({ label, options, groups, selec
                                 {group.label} ({group.options.length})
                             </label>
                         </div>
-                        {filteredGroupOptions.map(renderOption)}
+                        {activeOptions.map(opt => renderOption(opt))}
+                        {disabledOptions.length > 0 && (
+                            <div className="mt-2 pt-2 border-t border-amber-200">
+                                <div className="text-xs text-amber-700 font-semibold mr-6 mb-1">تم تسجيل دفعات لهم:</div>
+                                {disabledOptions.map(opt => renderOption(opt, true))}
+                            </div>
+                        )}
                     </div>
                 );
             }).filter(Boolean);
@@ -173,11 +166,26 @@ const MultiSelect: React.FC<MultiSelectProps> = ({ label, options, groups, selec
             if (filteredOptions.length === 0) {
                  return <div className="text-center text-gray-500 p-4">لا توجد نتائج</div>;
             }
-            return filteredOptions.map(renderOption);
+            
+            // فصل الخيارات إلى نشطة ومسجلة
+            const activeOptions = filteredOptions.filter(opt => !disabledIds.includes(opt.id));
+            const disabledOptions = filteredOptions.filter(opt => disabledIds.includes(opt.id));
+            
+            return (
+                <>
+                    {activeOptions.map(opt => renderOption(opt))}
+                    {disabledOptions.length > 0 && (
+                        <div className="mt-4 pt-4 border-t border-amber-200">
+                            <div className="text-sm text-amber-700 font-semibold mb-2">✓ تم تسجيل دفعات لهم:</div>
+                            {disabledOptions.map(opt => renderOption(opt, true))}
+                        </div>
+                    )}
+                </>
+            );
         }
         
         return <div className="text-center text-gray-500 p-4">لا توجد خيارات متاحة.</div>;
-    }, [groups, options, searchTerm, selectedIds, label, disabledIds, highlightedIds]);
+    }, [groups, options, searchTerm, selectedIds, label, disabledIds]);
 
 
     return (
