@@ -79,7 +79,7 @@ const getMonthName = (monthNum: string) => {
 
 // --- WORKERS PAYMENT SECTION ---
 const WorkersPaymentSection: React.FC = () => {
-    const { workers, workerPayments, addWorkerPayment, updateWorkerPayment, deleteWorkerPayment } = useAppContext();
+    const { workers, workerPayments, addWorkerPayment, updateWorkerPayment, deleteWorkerPayment, dailyRecords, updateDailyRecords } = useAppContext();
     const { hasPermission } = usePermissions();
     
     const canCreate = hasPermission('payments', 'create');
@@ -113,6 +113,37 @@ const WorkersPaymentSection: React.FC = () => {
 
     const sortedYears = useMemo(() => Object.keys(groupedByYear).sort().reverse(), [groupedByYear]);
 
+    // دالة لتحديث ملاحظات اليومية عند إضافة/تعديل دفعة قبض
+    const updateDailyRecordNotes = async (workerId: string, paymentDate: string, paidMonth: string, paymentNotes?: string) => {
+        const [year, month] = paidMonth.split('-');
+        const monthName = getMonthName(month);
+        let paymentNote = `قبض شهر ${monthName}`;
+        if (paymentNotes) {
+            paymentNote += ` (${paymentNotes})`;
+        }
+
+        // البحث عن سجل اليومية في تاريخ القبض
+        const dailyRecord = dailyRecords.find(r => r.workerId === workerId && r.date === paymentDate);
+        
+        if (dailyRecord) {
+            // إضافة ملاحظة القبض إلى الملاحظات الموجودة
+            let updatedNotes = dailyRecord.notes || '';
+            
+            // التحقق من عدم وجود نفس الملاحظة مسبقاً
+            if (!updatedNotes.includes(paymentNote)) {
+                if (updatedNotes && updatedNotes.trim()) {
+                    updatedNotes = `${updatedNotes} | ${paymentNote}`;
+                } else {
+                    updatedNotes = paymentNote;
+                }
+                
+                // تحديث السجل
+                const updatedRecord = { ...dailyRecord, notes: updatedNotes };
+                await updateDailyRecords([updatedRecord]);
+            }
+        }
+    };
+
     const handleAddForMonth = (year: string, month: string) => {
         setSelectedYear(year);
         setSelectedMonth(month);
@@ -130,21 +161,31 @@ const WorkersPaymentSection: React.FC = () => {
         setIsEditModalOpen(true);
     };
 
-    const handleSaveAdd = (data: { workerId: string; date: string; notes?: string }[]) => {
+    const handleSaveAdd = async (data: { workerId: string; date: string; notes?: string }[]) => {
         const paidMonth = `${selectedYear}-${selectedMonth}`;
-        data.forEach(item => {
-            addWorkerPayment({ ...item, paidMonth });
-        });
+        for (const item of data) {
+            await addWorkerPayment({ ...item, paidMonth });
+            // تحديث ملاحظات اليومية
+            await updateDailyRecordNotes(item.workerId, item.date, paidMonth, item.notes);
+        }
         setIsAddModalOpen(false);
     };
 
-    const handleSaveEdit = (data: { workerId: string; date: string; notes?: string }[]) => {
-        data.forEach(item => {
+    const handleSaveEdit = async (data: { workerId: string; date: string; notes?: string }[]) => {
+        for (const item of data) {
             const existingPayment = editingPayments.find(p => p.workerId === item.workerId);
             if (existingPayment) {
-                updateWorkerPayment({ ...existingPayment, date: item.date, notes: item.notes });
+                // إذا تم تغيير التاريخ، إزالة الملاحظة من التاريخ القديم
+                if (existingPayment.date !== item.date) {
+                    await removeDailyRecordPaymentNote(item.workerId, existingPayment.date, existingPayment.paidMonth, existingPayment.notes);
+                }
+                
+                await updateWorkerPayment({ ...existingPayment, date: item.date, notes: item.notes });
+                
+                // إضافة/تحديث ملاحظة القبض في التاريخ الجديد
+                await updateDailyRecordNotes(item.workerId, item.date, existingPayment.paidMonth, item.notes);
             }
-        });
+        }
         setIsEditModalOpen(false);
     };
 
@@ -158,9 +199,46 @@ const WorkersPaymentSection: React.FC = () => {
         });
     };
 
-    const confirmDelete = () => {
+    // دالة لإزالة ملاحظة القبض من اليومية
+    const removeDailyRecordPaymentNote = async (workerId: string, paymentDate: string, paidMonth: string, paymentNotes?: string) => {
+        const [year, month] = paidMonth.split('-');
+        const monthName = getMonthName(month);
+        let paymentNote = `قبض شهر ${monthName}`;
+        if (paymentNotes) {
+            paymentNote += ` (${paymentNotes})`;
+        }
+
+        const dailyRecord = dailyRecords.find(r => r.workerId === workerId && r.date === paymentDate);
+        
+        if (dailyRecord && dailyRecord.notes) {
+            // إزالة ملاحظة القبض من الملاحظات
+            let updatedNotes = dailyRecord.notes;
+            
+            // إزالة الملاحظة مع الفاصل إن وجد
+            if (updatedNotes.includes(` | ${paymentNote}`)) {
+                updatedNotes = updatedNotes.replace(` | ${paymentNote}`, '');
+            } else if (updatedNotes.includes(`${paymentNote} | `)) {
+                updatedNotes = updatedNotes.replace(`${paymentNote} | `, '');
+            } else if (updatedNotes === paymentNote) {
+                updatedNotes = '';
+            }
+            
+            // تحديث السجل
+            const updatedRecord = { ...dailyRecord, notes: updatedNotes };
+            await updateDailyRecords([updatedRecord]);
+        }
+    };
+
+    const confirmDelete = async () => {
         if (deleteInfo && deleteInfo.ids.length > 0) {
-            deleteInfo.ids.forEach(id => deleteWorkerPayment(id));
+            for (const id of deleteInfo.ids) {
+                const payment = workerPayments.find(p => p.id === id);
+                if (payment) {
+                    // إزالة ملاحظة القبض من اليومية
+                    await removeDailyRecordPaymentNote(payment.workerId, payment.date, payment.paidMonth, payment.notes);
+                }
+                await deleteWorkerPayment(id);
+            }
             setDeleteInfo(null);
         }
     };

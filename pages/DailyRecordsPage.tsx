@@ -143,21 +143,6 @@ const DailyRecordsPage: React.FC = () => {
         );
     }, [workerPayments]);
 
-    // دالة لإضافة ملاحظة القبض إلى ملاحظات اليومية
-    const appendPaymentNote = (existingNotes: string, payment: any) => {
-        const [year, month] = payment.date.split('-');
-        const monthName = getMonthName(month);
-        let paymentNote = `قبض شهر ${monthName}`;
-        if (payment.notes) {
-            paymentNote += ` (${payment.notes})`;
-        }
-        
-        if (existingNotes && existingNotes.trim()) {
-            return `${existingNotes} | ${paymentNote}`;
-        }
-        return paymentNote;
-    };
-
     useEffect(() => {
         const sessionSaveCount = saveCountsByDate[selectedDate];
         if (sessionSaveCount !== undefined) {
@@ -773,11 +758,6 @@ const DailyRecordsPage: React.FC = () => {
                                             
                                             // التحقق من وجود دفعة قبض في هذا التاريخ
                                             const paymentOnThisDate = getPaymentForDate(record.workerId, selectedDate);
-                                            
-                                            // تحديث الملاحظات لتشمل ملاحظة القبض إن وجدت
-                                            const displayNotes = paymentOnThisDate 
-                                                ? appendPaymentNote(record.notes || '', paymentOnThisDate)
-                                                : (record.notes || '');
 
                                             return (
                                                 <tr key={record.id} className={`border-b transition-colors ${rowClass}`}>
@@ -802,7 +782,7 @@ const DailyRecordsPage: React.FC = () => {
                                                         <div className="flex items-center gap-1">
                                                             <input 
                                                                 type="text" 
-                                                                value={displayNotes} 
+                                                                value={record.notes || ''} 
                                                                 onChange={(e) => handleRecordChange(record.workerId, 'notes', e.target.value)} 
                                                                 className={`${inputClass} ${paymentOnThisDate ? 'bg-purple-50 border-purple-300 font-medium' : ''}`}
                                                                 placeholder="ملاحظات..." 
