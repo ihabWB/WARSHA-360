@@ -510,7 +510,23 @@ export const dailyRecordService = {
   },
 
   async upsert(kablanId: string, records: DailyRecord[]) {
-    // Remove id from records - let Supabase generate it
+    if (records.length === 0) return [];
+    
+    // Get unique dates from records
+    const dates = [...new Set(records.map(r => r.date))];
+    
+    // Delete existing records for these dates and kablanId
+    for (const date of dates) {
+      const workerIds = records.filter(r => r.date === date).map(r => r.workerId);
+      await supabase
+        .from('daily_records')
+        .delete()
+        .eq('kablan_id', kablanId)
+        .eq('date', date)
+        .in('worker_id', workerIds);
+    }
+    
+    // Insert new records
     const recordsWithoutId = records.map(r => {
       const { id, ...rest } = r;
       return { ...rest, kablan_id: kablanId };
@@ -520,13 +536,13 @@ export const dailyRecordService = {
     
     const { data, error } = await supabase
       .from('daily_records')
-      .upsert(recordsSnake, { 
-        onConflict: 'kablan_id,worker_id,date',
-        ignoreDuplicates: false 
-      })
+      .insert(recordsSnake)
       .select();
     
-    if (error) throw error;
+    if (error) {
+      console.error('Error upserting daily records:', error);
+      throw error;
+    }
     return toCamelCase(data) as DailyRecord[];
   },
 
