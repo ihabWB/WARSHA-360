@@ -565,25 +565,27 @@ export const dailyRecordService = {
     
     const results: any[] = [];
     
-    // Update existing records
+    // Update existing records - use upsert with specific IDs
     if (toUpdate.length > 0) {
-      for (const record of toUpdate) {
-        const { id, ...updateData } = record;
-        const recordSnake = toSnakeCase(updateData);
-        
-        const { data, error } = await supabase
-          .from('daily_records')
-          .update(recordSnake)
-          .eq('id', id)
-          .select();
-        
-        if (error) {
-          console.error('Error updating record:', error);
-          throw error;
-        }
-        if (data) results.push(...data);
+      const recordsSnake = toSnakeCase(toUpdate);
+      
+      console.log('Attempting to upsert (update) records...');
+      const { data, error } = await supabase
+        .from('daily_records')
+        .upsert(recordsSnake, { 
+          onConflict: 'id',
+          ignoreDuplicates: false 
+        })
+        .select();
+      
+      if (error) {
+        console.error('Error updating records:', error);
+        throw error;
       }
-      console.log('Successfully updated records:', toUpdate.length);
+      if (data) {
+        results.push(...data);
+        console.log('Successfully updated records:', data.length);
+      }
     }
     
     // Insert new records
