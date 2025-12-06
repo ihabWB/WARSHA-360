@@ -521,7 +521,7 @@ export const dailyRecordService = {
     const { data, error } = await supabase
       .from('daily_records')
       .upsert(recordsSnake, { 
-        onConflict: 'worker_id,date',
+        onConflict: 'kablan_id,worker_id,date',
         ignoreDuplicates: false 
       })
       .select();
