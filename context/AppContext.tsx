@@ -559,10 +559,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   // Daily record methods
   const updateDailyRecords = useCallback(async (date: string, records: DailyRecord[]) => {
     if (!selectedKablanId) throw new Error('No kablan selected');
+    console.log('updateDailyRecords called:', { date, recordsCount: records.length, kablanId: selectedKablanId });
     try {
-      await dailyRecordService.upsert(selectedKablanId, records);
+      const result = await dailyRecordService.upsert(selectedKablanId, records);
+      console.log('Daily records upserted successfully:', result);
       await refreshKablanData();
     } catch (err: any) {
+      console.error('Error updating daily records:', err);
       setError(err.message);
       throw err;
     }

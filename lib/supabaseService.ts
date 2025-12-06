@@ -510,20 +510,31 @@ export const dailyRecordService = {
   },
 
   async upsert(kablanId: string, records: DailyRecord[]) {
+    console.log('dailyRecordService.upsert called:', { kablanId, recordsCount: records.length, records });
+    
     if (records.length === 0) return [];
     
     // Get unique dates from records
     const dates = [...new Set(records.map(r => r.date))];
+    console.log('Unique dates:', dates);
     
     // Delete existing records for these dates and kablanId
     for (const date of dates) {
       const workerIds = records.filter(r => r.date === date).map(r => r.workerId);
-      await supabase
+      console.log(`Deleting existing records for date ${date}, workers:`, workerIds);
+      
+      const { error: deleteError } = await supabase
         .from('daily_records')
         .delete()
         .eq('kablan_id', kablanId)
         .eq('date', date)
         .in('worker_id', workerIds);
+      
+      if (deleteError) {
+        console.error('Delete error:', deleteError);
+      } else {
+        console.log(`Successfully deleted records for ${date}`);
+      }
     }
     
     // Insert new records
@@ -532,7 +543,9 @@ export const dailyRecordService = {
       return { ...rest, kablan_id: kablanId };
     });
     
+    console.log('Records to insert (before snake case):', recordsWithoutId);
     const recordsSnake = toSnakeCase(recordsWithoutId);
+    console.log('Records to insert (after snake case):', recordsSnake);
     
     const { data, error } = await supabase
       .from('daily_records')
@@ -540,9 +553,11 @@ export const dailyRecordService = {
       .select();
     
     if (error) {
-      console.error('Error upserting daily records:', error);
+      console.error('Error inserting daily records:', error);
       throw error;
     }
+    
+    console.log('Successfully inserted records:', data);
     return toCamelCase(data) as DailyRecord[];
   },
 
