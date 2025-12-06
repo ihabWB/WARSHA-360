@@ -519,51 +519,92 @@ export const dailyRecordService = {
     
     if (records.length === 0) return [];
     
-    // Get unique dates from records
+    // Instead of delete+insert, we'll fetch existing and update/insert accordingly
     const dates = [...new Set(records.map(r => r.date))];
     console.log('Unique dates:', dates);
     
-    // Delete existing records for these dates and kablanId
-    for (const date of dates) {
-      const workerIds = records.filter(r => r.date === date).map(r => r.workerId);
-      console.log(`Deleting existing records for date ${date}, workers:`, workerIds);
+    // Fetch existing records for these dates and kablan
+    const { data: existingRecords, error: fetchError } = await supabase
+      .from('daily_records')
+      .select('*')
+      .eq('kablan_id', kablanId)
+      .in('date', dates);
+    
+    if (fetchError) {
+      console.error('Error fetching existing records:', fetchError);
+      throw fetchError;
+    }
+    
+    console.log('Existing records found:', existingRecords?.length || 0);
+    
+    const existingMap = new Map(
+      (existingRecords || []).map(r => [`${r.worker_id}-${r.date}`, r])
+    );
+    
+    const toUpdate: any[] = [];
+    const toInsert: any[] = [];
+    
+    // Prepare records for update or insert
+    records.forEach(r => {
+      const { id, ...rest } = r;
+      const recordData = { ...rest, kablan_id: kablanId };
+      const key = `${r.workerId}-${r.date}`;
+      const existing = existingMap.get(key);
       
-      const { error: deleteError } = await supabase
-        .from('daily_records')
-        .delete()
-        .eq('kablan_id', kablanId)
-        .eq('date', date)
-        .in('worker_id', workerIds);
-      
-      if (deleteError) {
-        console.error('Delete error:', deleteError);
+      if (existing) {
+        // Update existing record
+        toUpdate.push({ ...recordData, id: existing.id });
       } else {
-        console.log(`Successfully deleted records for ${date}`);
+        // Insert new record
+        toInsert.push(recordData);
       }
+    });
+    
+    console.log('Records to update:', toUpdate.length);
+    console.log('Records to insert:', toInsert.length);
+    
+    const results: any[] = [];
+    
+    // Update existing records
+    if (toUpdate.length > 0) {
+      for (const record of toUpdate) {
+        const { id, ...updateData } = record;
+        const recordSnake = toSnakeCase(updateData);
+        
+        const { data, error } = await supabase
+          .from('daily_records')
+          .update(recordSnake)
+          .eq('id', id)
+          .select();
+        
+        if (error) {
+          console.error('Error updating record:', error);
+          throw error;
+        }
+        if (data) results.push(...data);
+      }
+      console.log('Successfully updated records:', toUpdate.length);
     }
     
     // Insert new records
-    const recordsWithoutId = records.map(r => {
-      const { id, ...rest } = r;
-      return { ...rest, kablan_id: kablanId };
-    });
-    
-    console.log('Records to insert (before snake case):', recordsWithoutId);
-    const recordsSnake = toSnakeCase(recordsWithoutId);
-    console.log('Records to insert (after snake case):', recordsSnake);
-    
-    const { data, error } = await supabase
-      .from('daily_records')
-      .insert(recordsSnake)
-      .select();
-    
-    if (error) {
-      console.error('Error inserting daily records:', error);
-      throw error;
+    if (toInsert.length > 0) {
+      const recordsSnake = toSnakeCase(toInsert);
+      
+      const { data, error } = await supabase
+        .from('daily_records')
+        .insert(recordsSnake)
+        .select();
+      
+      if (error) {
+        console.error('Error inserting daily records:', error);
+        throw error;
+      }
+      if (data) results.push(...data);
+      console.log('Successfully inserted records:', toInsert.length);
     }
     
-    console.log('Successfully inserted records:', data);
-    return toCamelCase(data) as DailyRecord[];
+    console.log('Total records saved:', results.length);
+    return toCamelCase(results) as DailyRecord[];
   },
 
   async delete(id: string) {
