@@ -486,13 +486,18 @@ export const subcontractorService = {
 
 export const dailyRecordService = {
   async getAll(kablanId: string) {
+    console.log('dailyRecordService.getAll called for kablanId:', kablanId);
     const { data, error } = await supabase
       .from('daily_records')
       .select('*')
       .eq('kablan_id', kablanId)
       .order('date', { ascending: false });
     
-    if (error) throw error;
+    if (error) {
+      console.error('Error fetching daily records:', error);
+      throw error;
+    }
+    console.log('Daily records fetched:', data?.length, 'records');
     return toCamelCase(data) as DailyRecord[];
   },
 
