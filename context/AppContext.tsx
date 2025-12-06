@@ -309,10 +309,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const refreshKablanData = useCallback(async () => {
     if (!selectedKablanId) return;
     
+    console.log('refreshKablanData called for kablanId:', selectedKablanId);
     try {
       const data = await dataService.loadAllKablanData(selectedKablanId);
+      console.log('Kablan data refreshed successfully:', data);
       setKablanData(data);
     } catch (err: any) {
+      console.error('Error refreshing kablan data:', err);
       setError(err.message);
       throw err;
     }
