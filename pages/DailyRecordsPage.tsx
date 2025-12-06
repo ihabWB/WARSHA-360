@@ -146,6 +146,10 @@ const DailyRecordsPage: React.FC = () => {
     useEffect(() => {
         console.log('DailyRecordsPage useEffect triggered - dailyRecords count:', dailyRecords.length, 'selectedDate:', selectedDate);
         
+        // Debug: Check sample records
+        const sampleRecords = dailyRecords.slice(0, 5);
+        console.log('Sample daily records:', sampleRecords.map(r => ({ date: r.date, workerId: r.workerId })));
+        
         const sessionSaveCount = saveCountsByDate[selectedDate];
         if (sessionSaveCount !== undefined) {
             setSaveCount(sessionSaveCount);
@@ -162,6 +166,12 @@ const DailyRecordsPage: React.FC = () => {
 
         const existingRecordsForDate = dailyRecords.filter(r => r.date === selectedDate);
         console.log('Existing records for', selectedDate, ':', existingRecordsForDate.length);
+        
+        // Debug: Check dates around selected date
+        const datesInNov = dailyRecords.filter(r => r.date?.startsWith('2025-11')).map(r => r.date);
+        const uniqueDatesInNov = [...new Set(datesInNov)].sort();
+        console.log('Unique dates in November 2025:', uniqueDatesInNov);
+        
         const workerIdsWithRecords = new Set(existingRecordsForDate.map(r => r.workerId));
 
         const activeWorkerIds = new Set(workers.filter(w => w.status === 'active').map(w => w.id));
