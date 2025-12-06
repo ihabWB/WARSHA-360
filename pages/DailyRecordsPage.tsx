@@ -144,6 +144,8 @@ const DailyRecordsPage: React.FC = () => {
     }, [workerPayments]);
 
     useEffect(() => {
+        console.log('DailyRecordsPage useEffect triggered - dailyRecords count:', dailyRecords.length, 'selectedDate:', selectedDate);
+        
         const sessionSaveCount = saveCountsByDate[selectedDate];
         if (sessionSaveCount !== undefined) {
             setSaveCount(sessionSaveCount);
@@ -159,6 +161,7 @@ const DailyRecordsPage: React.FC = () => {
         const workersById = new Map<string, Worker>(workers.map(w => [w.id, w]));
 
         const existingRecordsForDate = dailyRecords.filter(r => r.date === selectedDate);
+        console.log('Existing records for', selectedDate, ':', existingRecordsForDate.length);
         const workerIdsWithRecords = new Set(existingRecordsForDate.map(r => r.workerId));
 
         const activeWorkerIds = new Set(workers.filter(w => w.status === 'active').map(w => w.id));

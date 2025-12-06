@@ -313,7 +313,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     try {
       const data = await dataService.loadAllKablanData(selectedKablanId);
       console.log('Kablan data refreshed successfully:', data);
+      console.log('Daily records in refreshed data:', data.dailyRecords?.length);
       setKablanData(data);
+      console.log('setKablanData called with', data.dailyRecords?.length, 'daily records');
     } catch (err: any) {
       console.error('Error refreshing kablan data:', err);
       setError(err.message);
