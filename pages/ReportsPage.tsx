@@ -56,8 +56,11 @@ const generateWorkersDetailedReport = (context: ReportContext, filters: ReportFi
     const { dailyRecords, workers, projects } = context;
     const { dateFrom, dateTo, workerIds, projectIds } = filters;
 
-    let filteredRecords = dailyRecords.filter(r => r.date >= dateFrom && r.date <= dateTo);
-    if (workerIds.length > 0) filteredRecords = filteredRecords.filter(r => workerIds.includes(r.workerId));
+    // All records in period (before project filter) to detect advances for workers with no work days
+    let allPeriodRecords = dailyRecords.filter(r => r.date >= dateFrom && r.date <= dateTo);
+    if (workerIds.length > 0) allPeriodRecords = allPeriodRecords.filter(r => workerIds.includes(r.workerId));
+
+    let filteredRecords = allPeriodRecords;
     if (projectIds.length > 0) filteredRecords = filteredRecords.filter(r => r.projectId && projectIds.includes(r.projectId));
 
     const workerMap = new Map(workers.map(w => [w.id, w]));
@@ -215,6 +218,22 @@ const generateWorkersDetailedReport = (context: ReportContext, filters: ReportFi
         });
     });
 
+    // --- Workers with no work days in the period ---
+    const workerIdsInReport = new Set(Array.from(report.keys()).map(k => k.split('-')[0]));
+    const allWorkersList = workerIds.length > 0
+        ? workers.filter(w => workerIds.includes(w.id))
+        : workers.filter(w => w.status === 'active');
+
+    const noWorkDayWorkers: { name: string; totalAdvance: number }[] = [];
+    allWorkersList.forEach(worker => {
+        if (!workerIdsInReport.has(worker.id)) {
+            // Check if this worker has any advance records in the period (from allPeriodRecords)
+            const workerRecords = allPeriodRecords.filter(r => r.workerId === worker.id);
+            const totalAdvance = workerRecords.reduce((sum, r) => sum + (r.advance || 0), 0);
+            noWorkDayWorkers.push({ name: worker.name, totalAdvance });
+        }
+    });
+
     return {
         columns: [
             { header: 'اسم العامل', accessor: 'workerName' },
@@ -227,6 +246,7 @@ const generateWorkersDetailedReport = (context: ReportContext, filters: ReportFi
             { header: 'الصافي', accessor: 'net' },
         ],
         data: finalData,
+        summary: { noWorkDayWorkers },
         title: 'تقرير العمال التفصيلي'
     };
 };
@@ -378,9 +398,24 @@ const generateWorkersSummaryReport = (context: ReportContext, filters: ReportFil
         return { ...newRow, ...finalRow };
     });
 
+    // --- Workers with no work days in the period ---
+    const allWorkersList = workerIds.length > 0
+        ? workers.filter(w => workerIds.includes(w.id))
+        : workers.filter(w => w.status === 'active');
+
+    const noWorkDayWorkers: { name: string; totalAdvance: number }[] = [];
+    allWorkersList.forEach(worker => {
+        if (!summaryMap.has(worker.id)) {
+            const workerRecords = dailyRecords.filter(r => r.workerId === worker.id && r.date >= dateFrom && r.date <= dateTo);
+            const totalAdvance = workerRecords.reduce((sum, r) => sum + (r.advance || 0), 0);
+            noWorkDayWorkers.push({ name: worker.name, totalAdvance });
+        }
+    });
+
     return {
         columns,
         data: formattedData,
+        summary: { noWorkDayWorkers },
         title: 'تقرير العمال الملخص'
     };
 };
@@ -739,6 +774,20 @@ const generateDailySummaryReport = (context: ReportContext, filters: ReportFilte
         });
     }
 
+    // --- Workers with no work days in the period ---
+    const allWorkersList = workerIds.length > 0
+        ? workers.filter(w => workerIds.includes(w.id))
+        : workers.filter(w => w.status === 'active');
+
+    const noWorkDayWorkers: { name: string; totalAdvance: number }[] = [];
+    allWorkersList.forEach(worker => {
+        if (!summaryMap.has(worker.id)) {
+            const workerRecords = dailyRecords.filter(r => r.workerId === worker.id && r.date >= dateFrom && r.date <= dateTo);
+            const totalAdvance = workerRecords.reduce((sum, r) => sum + (r.advance || 0), 0);
+            noWorkDayWorkers.push({ name: worker.name, totalAdvance });
+        }
+    });
+
     return {
         columns: [
             { header: '#', accessor: 'seq' },
@@ -753,7 +802,9 @@ const generateDailySummaryReport = (context: ReportContext, filters: ReportFilte
             { header: 'صافي الراتب', accessor: 'netSalary' },
         ],
         data,
-        summary: showNotes ? { notesMap, workerMap: workerMapForNotes } : undefined,
+        summary: showNotes 
+            ? { notesMap, workerMap: workerMapForNotes, noWorkDayWorkers }
+            : { noWorkDayWorkers },
         title: 'التقرير الملخص لليوميات'
     };
 };
@@ -1815,8 +1866,17 @@ export const ReportsPage: React.FC = () => {
                         .text-green-700 { color: #15803d !important; }
                         .text-yellow-300 { color: #fcd34d !important; }
                         .text-orange-600 { color: #ea580c !important; }
+                        .text-orange-700 { color: #c2410c !important; }
                         .bg-orange-100 { background-color: #ffedd5 !important; }
                         .bg-orange-50 { background-color: #fff7ed !important; }
+                        .bg-red-50 { background-color: #fef2f2 !important; }
+                        .bg-gray-50 { background-color: #f9fafb !important; }
+                        .border-orange-400 { border-color: #fb923c !important; }
+                        .border-red-300 { border-color: #fca5a5 !important; }
+                        .border-gray-300 { border-color: #d1d5db !important; }
+                        .text-red-700 { color: #b91c1c !important; }
+                        .text-gray-600 { color: #4b5563 !important; }
+                        .text-gray-400 { color: #9ca3af !important; }
                         
                         /* Notes Display Styles */
                         .notes-section { margin-top: 2rem; padding-top: 1rem; border-top: 4px solid #2563eb; }
@@ -1917,6 +1977,47 @@ export const ReportsPage: React.FC = () => {
                                     </div>
                                 );
                             })}
+                        </div>
+                    </div>
+                )}
+
+                {/* Workers with no work days in the period */}
+                {reportData.summary?.noWorkDayWorkers && reportData.summary.noWorkDayWorkers.length > 0 && (
+                    <div className="mt-6 p-4 border-t-4 border-orange-400">
+                        <h3 className="text-lg font-bold mb-3 text-orange-700">عمال ليس لديهم أيام عمل في هذه الفترة</h3>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            {/* Workers with advances */}
+                            {reportData.summary.noWorkDayWorkers.filter((w: any) => w.totalAdvance > 0).length > 0 && (
+                                <div className="border border-red-300 rounded-lg p-3 bg-red-50">
+                                    <h4 className="font-semibold text-red-700 mb-2 border-b border-red-200 pb-1">⚠ عمال لديهم سلف فقط</h4>
+                                    <ul className="space-y-1">
+                                        {reportData.summary.noWorkDayWorkers
+                                            .filter((w: any) => w.totalAdvance > 0)
+                                            .map((w: any, i: number) => (
+                                                <li key={i} className="flex justify-between items-center text-sm text-gray-800">
+                                                    <span className="font-medium">{w.name}</span>
+                                                    <span className="text-red-600 font-bold">سلفة: {formatNum(w.totalAdvance)} ₪</span>
+                                                </li>
+                                            ))}
+                                    </ul>
+                                </div>
+                            )}
+                            {/* Workers with no work days and no advances */}
+                            {reportData.summary.noWorkDayWorkers.filter((w: any) => w.totalAdvance === 0).length > 0 && (
+                                <div className="border border-gray-300 rounded-lg p-3 bg-gray-50">
+                                    <h4 className="font-semibold text-gray-600 mb-2 border-b border-gray-200 pb-1">ℹ عمال بدون أيام عمل ولا سلف</h4>
+                                    <ul className="space-y-1">
+                                        {reportData.summary.noWorkDayWorkers
+                                            .filter((w: any) => w.totalAdvance === 0)
+                                            .map((w: any, i: number) => (
+                                                <li key={i} className="text-sm text-gray-600">
+                                                    <span className="font-medium">{w.name}</span>
+                                                    <span className="mr-2 text-gray-400">— ليس لديه ولا يوم عمل في هذه الفترة</span>
+                                                </li>
+                                            ))}
+                                    </ul>
+                                </div>
+                            )}
                         </div>
                     </div>
                 )}
