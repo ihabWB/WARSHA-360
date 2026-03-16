@@ -128,6 +128,26 @@ const generateWorkersDetailedReport = (context: ReportContext, filters: ReportFi
         entry.net += dayNet;
     });
 
+    // فصل العمال الذين ليس لديهم أيام عمل (أيام عمل = صفر) - سيظهرون تحت الجدول فقط
+    const noWorkInReportIds = new Set<string>();
+    report.forEach((entry, key) => {
+        const hasWorkDays = (entry.workDaysValue > 0) || (entry.workHours > 0) || (entry.attendanceDays > 0);
+        if (!hasWorkDays) noWorkInReportIds.add(entry.workerId);
+    });
+    // إزالة العمال الذين كل سجلاتهم بدون أيام عمل
+    const workerIdsWithActualWork = new Set<string>();
+    report.forEach((entry) => {
+        if ((entry.workDaysValue > 0) || (entry.workHours > 0) || (entry.attendanceDays > 0)) {
+            workerIdsWithActualWork.add(entry.workerId);
+        }
+    });
+    // حذف المدخلات التي تخص عمال بدون أي يوم عمل فعلي
+    report.forEach((entry, key) => {
+        if (!workerIdsWithActualWork.has(entry.workerId)) {
+            report.delete(key);
+        }
+    });
+
     const aggregatedData = Array.from(report.values()).sort((a, b) => a.workerName.localeCompare(b.workerName) || a.projectName.localeCompare(b.projectName));
 
     const finalData: any[] = [];
@@ -219,15 +239,13 @@ const generateWorkersDetailedReport = (context: ReportContext, filters: ReportFi
     });
 
     // --- Workers with no work days in the period ---
-    const workerIdsInReport = new Set(Array.from(report.keys()).map(k => k.split('-')[0]));
     const allWorkersList = workerIds.length > 0
         ? workers.filter(w => workerIds.includes(w.id))
         : workers.filter(w => w.status === 'active');
 
     const noWorkDayWorkers: { name: string; totalAdvance: number }[] = [];
     allWorkersList.forEach(worker => {
-        if (!workerIdsInReport.has(worker.id)) {
-            // Check if this worker has any advance records in the period (from allPeriodRecords)
+        if (!workerIdsWithActualWork.has(worker.id)) {
             const workerRecords = allPeriodRecords.filter(r => r.workerId === worker.id);
             const totalAdvance = workerRecords.reduce((sum, r) => sum + (r.advance || 0), 0);
             noWorkDayWorkers.push({ name: worker.name, totalAdvance });
@@ -334,6 +352,14 @@ const generateWorkersSummaryReport = (context: ReportContext, filters: ReportFil
     if (options.workerSummaryOptions.expense) columns.push({ header: 'مصاريف', accessor: 'expense' });
     if (options.workerSummaryOptions.net) columns.push({ header: 'الصافي', accessor: 'netSalary' });
 
+    // فصل العمال الذين ليس لديهم أيام عمل فعلية
+    const workersWithNoWorkDaysIds = new Set<string>();
+    summaryMap.forEach((entry, workerId) => {
+        const hasWork = (entry.workDaysValue > 0) || (entry.workHours > 0) || (entry.attendanceDays > 0);
+        if (!hasWork) workersWithNoWorkDaysIds.add(workerId);
+    });
+    workersWithNoWorkDaysIds.forEach(id => summaryMap.delete(id));
+
     const data = Array.from(summaryMap.values()).sort((a, b) => a.workerName.localeCompare(b.workerName));
 
     const totalSummary = data.reduce((acc, row) => {
@@ -410,6 +436,14 @@ const generateWorkersSummaryReport = (context: ReportContext, filters: ReportFil
             const totalAdvance = workerRecords.reduce((sum, r) => sum + (r.advance || 0), 0);
             noWorkDayWorkers.push({ name: worker.name, totalAdvance });
         }
+    });
+    // إضافة العمال المحذوفين من summaryMap (كانوا فيها بأيام عمل=0)
+    workersWithNoWorkDaysIds.forEach(workerId => {
+        const entry = Array.from(summaryMap.entries()).find(([id]) => id === workerId);
+        const name = entry ? entry[1].workerName : workers.find(w => w.id === workerId)?.name || '';
+        const workerRecords = dailyRecords.filter(r => r.workerId === workerId && r.date >= dateFrom && r.date <= dateTo);
+        const totalAdvance = workerRecords.reduce((sum, r) => sum + (r.advance || 0), 0);
+        if (name) noWorkDayWorkers.push({ name, totalAdvance });
     });
 
     return {
@@ -682,6 +716,14 @@ const generateDailySummaryReport = (context: ReportContext, filters: ReportFilte
         entry.netSalary += dailyNet;
     });
     
+    // فصل العمال الذين ليس لديهم أيام عمل فعلية عن الجدول الرئيسي
+    const dailySummaryNoWorkIds = new Set<string>();
+    summaryMap.forEach((entry, workerId) => {
+        const hasWork = (entry.workDaysValue > 0) || (entry.workHours > 0) || (entry.attendanceDays > 0);
+        if (!hasWork) dailySummaryNoWorkIds.add(workerId);
+    });
+    dailySummaryNoWorkIds.forEach(id => summaryMap.delete(id));
+
     const rawData = Array.from(summaryMap.values()).sort((a, b) => {
         if (a.paymentType === 'monthly' && b.paymentType !== 'monthly') return -1;
         if (a.paymentType !== 'monthly' && b.paymentType === 'monthly') return 1;
@@ -786,6 +828,13 @@ const generateDailySummaryReport = (context: ReportContext, filters: ReportFilte
             const totalAdvance = workerRecords.reduce((sum, r) => sum + (r.advance || 0), 0);
             noWorkDayWorkers.push({ name: worker.name, totalAdvance });
         }
+    });
+    // إضافة العمال المحذوفين من summaryMap (كانوا فيها بأيام عمل=0)
+    dailySummaryNoWorkIds.forEach(workerId => {
+        const workerName = workers.find(w => w.id === workerId)?.name || '';
+        const workerRecords = dailyRecords.filter(r => r.workerId === workerId && r.date >= dateFrom && r.date <= dateTo);
+        const totalAdvance = workerRecords.reduce((sum, r) => sum + (r.advance || 0), 0);
+        if (workerName) noWorkDayWorkers.push({ name: workerName, totalAdvance });
     });
 
     return {
