@@ -114,48 +114,65 @@ const WorkersPage: React.FC = () => {
             // تنظيف السجلات - إزالة أي سجلات غير صحيحة (بدون effectiveDate)
             newHistory = newHistory.filter(entry => entry.effectiveDate);
             console.log('🧹 Cleaned salary history:', newHistory);
-            
-            // نتحقق: هل يوجد سجل راتب قبل التاريخ المحدد؟
-            const hasEntryBeforeDate = newHistory.some(entry => entry.effectiveDate < changeDetails.effectiveDate);
-            
-            if (!hasEntryBeforeDate) {
-                console.log('⚠️ No salary entry before the new date, creating base entry');
-                // نضيف سجل الراتب الحالي (القديم) بتاريخ أقدم من تاريخ التعديل
-                const oldestDate = changeDetails.effectiveDate > '2020-01-01' ? '2020-01-01' : '2000-01-01';
-                const oldSalaryEntry: SalaryHistoryEntry = {
-                    effectiveDate: oldestDate,
-                    paymentType: currentWorker.paymentType,
-                    dailyRate: currentWorker.dailyRate || 0,
-                    monthlySalary: currentWorker.monthlySalary || 0,
-                    hourlyRate: currentWorker.hourlyRate || 0,
-                    overtimeSystem: currentWorker.overtimeSystem || 'automatic',
-                    divisionFactor: currentWorker.divisionFactor || 8,
-                    overtimeRate: currentWorker.overtimeRate || 0,
-                    notes: 'راتب أساسي (قبل التعديل)',
+
+            // ✅ Fix 1: تحقق هل قيم الراتب تغيّرت فعلاً
+            // إذا غيّر المستخدم الورشة أو الاسم فقط، لا نضيف سجل راتب جديد
+            const applicableSalary = getSalaryForDate(currentWorker, changeDetails.effectiveDate);
+            const salaryValuesChanged =
+                workerData.paymentType !== applicableSalary.paymentType ||
+                workerData.dailyRate !== applicableSalary.dailyRate ||
+                workerData.monthlySalary !== applicableSalary.monthlySalary ||
+                workerData.hourlyRate !== applicableSalary.hourlyRate ||
+                workerData.overtimeSystem !== applicableSalary.overtimeSystem ||
+                workerData.divisionFactor !== applicableSalary.divisionFactor ||
+                Number(workerData.overtimeRate.toFixed(4)) !== Number(applicableSalary.overtimeRate.toFixed(4));
+            console.log('💡 Salary values changed:', salaryValuesChanged, { new: workerData, applicable: applicableSalary });
+
+            if (salaryValuesChanged) {
+                // نتحقق: هل يوجد سجل راتب قبل التاريخ المحدد؟
+                const hasEntryBeforeDate = newHistory.some(entry => entry.effectiveDate < changeDetails.effectiveDate);
+
+                if (!hasEntryBeforeDate) {
+                    console.log('⚠️ No salary entry before the new date, creating base entry');
+                    // نضيف سجل الراتب الحالي (القديم) بتاريخ أقدم من تاريخ التعديل
+                    const oldestDate = changeDetails.effectiveDate > '2020-01-01' ? '2020-01-01' : '2000-01-01';
+                    const oldSalaryEntry: SalaryHistoryEntry = {
+                        effectiveDate: oldestDate,
+                        paymentType: applicableSalary.paymentType,
+                        dailyRate: applicableSalary.dailyRate || 0,
+                        monthlySalary: applicableSalary.monthlySalary || 0,
+                        hourlyRate: applicableSalary.hourlyRate || 0,
+                        overtimeSystem: applicableSalary.overtimeSystem || 'automatic',
+                        divisionFactor: applicableSalary.divisionFactor || 8,
+                        overtimeRate: applicableSalary.overtimeRate || 0,
+                        notes: 'راتب أساسي (قبل التعديل)',
+                    };
+                    newHistory.push(oldSalaryEntry);
+                    console.log('✅ Base entry added:', oldSalaryEntry);
+                } else {
+                    console.log('✅ Found existing entry before new date, no need for base entry');
+                }
+
+                const newSalaryEntry: SalaryHistoryEntry = {
+                    effectiveDate: changeDetails.effectiveDate,
+                    paymentType: workerData.paymentType,
+                    dailyRate: workerData.dailyRate,
+                    monthlySalary: workerData.monthlySalary,
+                    hourlyRate: workerData.hourlyRate,
+                    overtimeSystem: workerData.overtimeSystem,
+                    divisionFactor: workerData.divisionFactor,
+                    overtimeRate: workerData.overtimeRate,
+                    notes: changeDetails.reason,
                 };
-                newHistory.push(oldSalaryEntry);
-                console.log('✅ Base entry added:', oldSalaryEntry);
+
+                console.log('➕ Adding new salary entry:', newSalaryEntry);
+                newHistory = newHistory.filter(e => e.effectiveDate !== newSalaryEntry.effectiveDate);
+                newHistory.push(newSalaryEntry);
+                newHistory.sort((a, b) => a.effectiveDate.localeCompare(b.effectiveDate));
+                console.log('📊 Updated salary history:', newHistory);
             } else {
-                console.log('✅ Found existing entry before new date, no need for base entry');
+                console.log('⏭️ Salary unchanged — skipping salary history entry (project/name change only)');
             }
-            
-            const newSalaryEntry: SalaryHistoryEntry = {
-                effectiveDate: changeDetails.effectiveDate,
-                paymentType: workerData.paymentType,
-                dailyRate: workerData.dailyRate,
-                monthlySalary: workerData.monthlySalary,
-                hourlyRate: workerData.hourlyRate,
-                overtimeSystem: workerData.overtimeSystem,
-                divisionFactor: workerData.divisionFactor,
-                overtimeRate: workerData.overtimeRate,
-                notes: changeDetails.reason,
-            };
-            
-            console.log('➕ Adding new salary entry:', newSalaryEntry);
-            newHistory = newHistory.filter(e => e.effectiveDate !== newSalaryEntry.effectiveDate);
-            newHistory.push(newSalaryEntry);
-            newHistory.sort((a, b) => a.effectiveDate.localeCompare(b.effectiveDate));
-            console.log('📊 Updated salary history:', newHistory);
         
         } else { // 'retroactive'
             if (newHistory.length > 0) {
@@ -189,7 +206,9 @@ const WorkersPage: React.FC = () => {
         // لا نقوم بتحديث الحقول الرئيسية للعامل (dailyRate, monthlySalary, إلخ)
         // لأنها تستخدم فقط كـ fallback للبيانات القديمة
         // التاريخ الفعلي يتم تخزينه في salaryHistory
-        
+
+        // ✅ Fix 3: استخدم آخر سجل راتب (الأحدث) للحقول الأساسية، لا الأول
+        const latestHistoryEntry = newHistory.length > 0 ? newHistory[newHistory.length - 1] : null;
         const updatedWorker: Worker = {
             ...currentWorker,
             name: workerData.name,
@@ -200,15 +219,15 @@ const WorkersPage: React.FC = () => {
             status: workerData.status || currentWorker.status,
             defaultProjectId: workerData.defaultProjectId,
             salaryHistory: newHistory,
-            // نبقي الحقول الرئيسية كما هي أو نأخذها من أول سجل في التاريخ
-            ...(newHistory.length > 0 ? {
-                paymentType: newHistory[0].paymentType,
-                dailyRate: newHistory[0].dailyRate,
-                monthlySalary: newHistory[0].monthlySalary,
-                hourlyRate: newHistory[0].hourlyRate,
-                overtimeSystem: newHistory[0].overtimeSystem,
-                divisionFactor: newHistory[0].divisionFactor,
-                overtimeRate: newHistory[0].overtimeRate,
+            // نأخذ الحقول الأساسية من آخر سجل راتب في التاريخ (الأحدث)
+            ...(latestHistoryEntry ? {
+                paymentType: latestHistoryEntry.paymentType,
+                dailyRate: latestHistoryEntry.dailyRate,
+                monthlySalary: latestHistoryEntry.monthlySalary,
+                hourlyRate: latestHistoryEntry.hourlyRate,
+                overtimeSystem: latestHistoryEntry.overtimeSystem,
+                divisionFactor: latestHistoryEntry.divisionFactor,
+                overtimeRate: latestHistoryEntry.overtimeRate,
             } : {}),
         };
         console.log('💾 Saving updated worker:', updatedWorker);
@@ -342,6 +361,8 @@ const WorkerFormModal: React.FC<WorkerFormModalProps> = ({ isOpen, onClose, work
         if (!isOpen) return;
 
         const today = new Date().toISOString().split('T')[0];
+        // ✅ Fix 2: استخدم السجل المطبّق حالياً (الأحدث) لعرض الراتب الصحيح في النموذج
+        const currentSalary = worker ? getSalaryForDate(worker, today) : null;
         const initialData = {
             name: worker?.name || '',
             surname: worker?.surname || '',
@@ -349,22 +370,20 @@ const WorkerFormModal: React.FC<WorkerFormModalProps> = ({ isOpen, onClose, work
             role: worker?.role || '',
             phone: worker?.phone || '',
             status: worker?.status || 'active',
-            paymentType: worker?.paymentType || 'daily',
-            dailyRate: worker?.dailyRate || 0,
-            monthlySalary: worker?.monthlySalary || 0,
-            hourlyRate: worker?.hourlyRate || 0,
-            overtimeSystem: worker?.overtimeSystem || 'automatic',
-            divisionFactor: worker?.divisionFactor || 8,
-            overtimeRate: worker?.overtimeRate || 0,
+            paymentType: currentSalary?.paymentType || worker?.paymentType || 'daily',
+            dailyRate: currentSalary?.dailyRate || worker?.dailyRate || 0,
+            monthlySalary: currentSalary?.monthlySalary || worker?.monthlySalary || 0,
+            hourlyRate: currentSalary?.hourlyRate || worker?.hourlyRate || 0,
+            overtimeSystem: currentSalary?.overtimeSystem || worker?.overtimeSystem || 'automatic',
+            divisionFactor: currentSalary?.divisionFactor || worker?.divisionFactor || 8,
+            overtimeRate: currentSalary?.overtimeRate || worker?.overtimeRate || 0,
             defaultProjectId: worker?.defaultProjectId || '',
             changeEffectiveDate: today,
             changeReason: '',
             changeType: 'from_date' as 'from_date' | 'retroactive',
         };
-        
-        if (initialData.paymentType === 'daily' && initialData.overtimeSystem === 'automatic' && initialData.divisionFactor > 0) {
-            initialData.overtimeRate = (initialData.dailyRate || 0) / (initialData.divisionFactor || 1);
-        }
+
+        // لا نحتاج إعادة حساب overtimeRate لأن getSalaryForDate أرجعه صحيحاً
 
         setFormData(initialData);
     }, [worker, isOpen]);
