@@ -1283,10 +1283,16 @@ const DailyDetailedReportComponent = ({ data, summary }: { data: any[], summary:
                     <thead><tr className="bg-gray-100"><th className="p-2 text-black">التاريخ</th><th className="p-2 text-black">اليوم</th><th className="p-2 text-black">الحالة</th><th className="p-2 text-black">الورشة</th><th className="p-2 text-black">أيام/ساعات</th><th className="p-2 text-black">إضافي</th><th className="p-2 text-black">سلفة</th><th className="p-2 text-black">دخان</th><th className="p-2 text-black">مصروف</th><th className="p-2 text-black">خصومات</th><th className="p-2 text-black">إجمالي اليوم</th><th className="p-2 text-black">الصافي</th></tr></thead>
                     <tbody>
                         {workerPage.records.map((r: any, i: number) => {
-                            const isAbsentWithNoDeductions = r.status === 'غائب' && r.dailyDeductions === 0;
-                            const rowClass = isAbsentWithNoDeductions ? "border-b bg-gray-200" : "border-b";
+                            const isAbsent = r.status === 'غائب';
+                            const isAbsentWithDeductions = isAbsent && r.dailyDeductions > 0;
+                            const isAbsentWithoutDeductions = isAbsent && r.dailyDeductions === 0;
+                            const rowStyle: React.CSSProperties = isAbsentWithDeductions
+                                ? { backgroundColor: '#FECACA', WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' } as any
+                                : isAbsentWithoutDeductions
+                                ? { backgroundColor: '#FFF3CD', WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' } as any
+                                : {};
                             return (
-                                <tr key={i} className={rowClass}>
+                                <tr key={i} className="border-b" style={rowStyle}>
                                     <td className="p-2 text-black">{r.date}</td>
                                     <td className="p-2 text-black">{r.day}</td>
                                     <td className="p-2 text-black">{r.status}</td>
