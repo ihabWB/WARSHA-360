@@ -1286,29 +1286,30 @@ const DailyDetailedReportComponent = ({ data, summary }: { data: any[], summary:
                             const isAbsent = r.status === 'غائب';
                             const isAbsentWithDeductions = isAbsent && r.dailyDeductions > 0;
                             const isAbsentWithoutDeductions = isAbsent && r.dailyDeductions === 0;
-                            const rowClassName = `border-b ${
-                                isAbsentWithDeductions ? 'absent-with-deductions' :
-                                isAbsentWithoutDeductions ? 'absent-no-deductions' : ''
-                            }`;
-                            const accentCellStyle: React.CSSProperties = isAbsentWithDeductions
+                            const absentBg: React.CSSProperties = isAbsentWithDeductions
+                                ? { backgroundColor: '#FFCDD2', WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' } as any
+                                : isAbsentWithoutDeductions
+                                ? { backgroundColor: '#FFF8E1', WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' } as any
+                                : {};
+                            const accentBorder: React.CSSProperties = isAbsentWithDeductions
                                 ? { borderRight: '5px solid #C62828' }
                                 : isAbsentWithoutDeductions
                                 ? { borderRight: '5px solid #F57F17' }
                                 : {};
                             return (
-                                <tr key={i} className={rowClassName}>
-                                    <td className="p-2 text-black" style={accentCellStyle}>{r.date}</td>
-                                    <td className="p-2 text-black">{r.day}</td>
-                                    <td className="p-2 text-black">{r.status}</td>
-                                    <td className="p-2 text-black">{r.projectName}</td>
-                                    <td className="p-2 text-black">{r.workDay > 0 ? formatNum(r.workDay) : '0.00'}</td>
-                                    <td className="p-2" style={{ color: r.overtimeHours > 0 ? 'blue' : 'black', fontWeight: r.overtimeHours > 0 ? 'bold' : 'normal' }}>{r.overtimeHours > 0 ? formatNum(r.overtimeHours) : '0.00'}</td>
-                                    <td className="p-2" style={{ color: r.advance > 0 ? 'red' : 'black' }}>{r.advance > 0 ? formatNum(r.advance) : '0.00'}</td>
-                                    <td className="p-2" style={{ color: r.smoking > 0 ? 'red' : 'black' }}>{r.smoking > 0 ? formatNum(r.smoking) : '0.00'}</td>
-                                    <td className="p-2" style={{ color: r.expense > 0 ? 'red' : 'black' }}>{r.expense > 0 ? formatNum(r.expense) : '0.00'}</td>
-                                    <td className="p-2" style={{ color: r.dailyDeductions > 0 ? '#991b1b' : 'black', fontWeight: r.dailyDeductions > 0 ? 'bold' : 'normal' }}>{r.dailyDeductions > 0 ? formatNum(r.dailyDeductions) : '0.00'}</td>
-                                    <td className="p-2 text-black">{formatNum(r.grossDailyPay)}</td>
-                                    <td className={`p-2 font-bold`} style={{ color: r.dailyNet < 0 ? 'red' : 'black' }}>{formatNum(r.dailyNet)}</td>
+                                <tr key={i} className="border-b">
+                                    <td className="p-2 text-black" style={{ ...absentBg, ...accentBorder }}>{r.date}</td>
+                                    <td className="p-2 text-black" style={absentBg}>{r.day}</td>
+                                    <td className="p-2 text-black" style={absentBg}>{r.status}</td>
+                                    <td className="p-2 text-black" style={absentBg}>{r.projectName}</td>
+                                    <td className="p-2 text-black" style={absentBg}>{r.workDay > 0 ? formatNum(r.workDay) : '0.00'}</td>
+                                    <td className="p-2" style={{ ...absentBg, color: r.overtimeHours > 0 ? 'blue' : 'black', fontWeight: r.overtimeHours > 0 ? 'bold' : 'normal' }}>{r.overtimeHours > 0 ? formatNum(r.overtimeHours) : '0.00'}</td>
+                                    <td className="p-2" style={{ ...absentBg, color: r.advance > 0 ? 'red' : 'black' }}>{r.advance > 0 ? formatNum(r.advance) : '0.00'}</td>
+                                    <td className="p-2" style={{ ...absentBg, color: r.smoking > 0 ? 'red' : 'black' }}>{r.smoking > 0 ? formatNum(r.smoking) : '0.00'}</td>
+                                    <td className="p-2" style={{ ...absentBg, color: r.expense > 0 ? 'red' : 'black' }}>{r.expense > 0 ? formatNum(r.expense) : '0.00'}</td>
+                                    <td className="p-2" style={{ ...absentBg, color: r.dailyDeductions > 0 ? '#991b1b' : 'black', fontWeight: r.dailyDeductions > 0 ? 'bold' : 'normal' }}>{r.dailyDeductions > 0 ? formatNum(r.dailyDeductions) : '0.00'}</td>
+                                    <td className="p-2 text-black" style={absentBg}>{formatNum(r.grossDailyPay)}</td>
+                                    <td className="p-2 font-bold" style={{ ...absentBg, color: r.dailyNet < 0 ? 'red' : 'black' }}>{formatNum(r.dailyNet)}</td>
                                 </tr>
                             );
                         })}
