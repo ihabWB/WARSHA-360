@@ -1287,13 +1287,18 @@ const DailyDetailedReportComponent = ({ data, summary }: { data: any[], summary:
                             const isAbsentWithDeductions = isAbsent && r.dailyDeductions > 0;
                             const isAbsentWithoutDeductions = isAbsent && r.dailyDeductions === 0;
                             const rowStyle: React.CSSProperties = isAbsentWithDeductions
-                                ? { backgroundColor: '#FECACA', WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' } as any
+                                ? { backgroundColor: '#FFCDD2', WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' } as any
                                 : isAbsentWithoutDeductions
-                                ? { backgroundColor: '#FFF3CD', WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' } as any
+                                ? { backgroundColor: '#FFF8E1', WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' } as any
+                                : {};
+                            const accentCellStyle: React.CSSProperties = isAbsentWithDeductions
+                                ? { borderRight: '5px solid #C62828', WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' } as any
+                                : isAbsentWithoutDeductions
+                                ? { borderRight: '5px solid #F57F17', WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' } as any
                                 : {};
                             return (
                                 <tr key={i} className="border-b" style={rowStyle}>
-                                    <td className="p-2 text-black">{r.date}</td>
+                                    <td className="p-2 text-black" style={accentCellStyle}>{r.date}</td>
                                     <td className="p-2 text-black">{r.day}</td>
                                     <td className="p-2 text-black">{r.status}</td>
                                     <td className="p-2 text-black">{r.projectName}</td>
