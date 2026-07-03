@@ -52,3 +52,30 @@ input, textarea, select {
 
 /* Small RTL tweaks preserved */
 body { direction: rtl; }
+
+/* ======================================
+   تلوين صفوف الغياب - يعمل في الطباعة
+   ====================================== */
+.absent-no-deductions td {
+  background-color: #FFF8E1 !important;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+.absent-with-deductions td {
+  background-color: #FFCDD2 !important;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+@media print {
+  .absent-no-deductions td {
+    background-color: #FFF8E1 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  .absent-with-deductions td {
+    background-color: #FFCDD2 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+}
