@@ -486,19 +486,46 @@ export const subcontractorService = {
 
 export const dailyRecordService = {
   async getAll(kablanId: string) {
-    console.log('dailyRecordService.getAll called for kablanId:', kablanId);
-    const { data, error } = await supabase
-      .from('daily_records')
-      .select('*')
-      .eq('kablan_id', kablanId)
-      .order('date', { ascending: false });
+    console.log('✅ PAGINATION VERSION - dailyRecordService.getAll called for kablanId:', kablanId);
     
-    if (error) {
-      console.error('Error fetching daily records:', error);
-      throw error;
+    // Supabase has a hard limit of 1000 records per query
+    // We need to fetch all records using pagination
+    let allRecords: any[] = [];
+    let from = 0;
+    const pageSize = 1000;
+    let hasMore = true;
+    
+    while (hasMore) {
+      const { data, error, count } = await supabase
+        .from('daily_records')
+        .select('*', { count: 'exact' })
+        .eq('kablan_id', kablanId)
+        .order('date', { ascending: false })
+        .range(from, from + pageSize - 1);
+      
+      if (error) {
+        console.error('Error fetching daily records:', error);
+        throw error;
+      }
+      
+      if (data && data.length > 0) {
+        allRecords = [...allRecords, ...data];
+        console.log(`Fetched ${data.length} records (${from + 1} to ${from + data.length}). Total so far: ${allRecords.length}/${count}`);
+        from += pageSize;
+        hasMore = data.length === pageSize && allRecords.length < (count || 0);
+      } else {
+        hasMore = false;
+      }
     }
-    console.log('Daily records fetched:', data?.length, 'records');
-    return toCamelCase(data) as DailyRecord[];
+    
+    console.log('✅ ALL Daily records fetched:', allRecords.length, 'records');
+    if (allRecords.length > 0) {
+      console.log('Sample fetched record (raw from DB):', allRecords[0]);
+      const converted = toCamelCase(allRecords);
+      console.log('Sample after toCamelCase:', converted[0]);
+      return converted as DailyRecord[];
+    }
+    return [];
   },
 
   async getByDateRange(kablanId: string, startDate: string, endDate: string) {
@@ -569,6 +596,9 @@ export const dailyRecordService = {
     if (toUpdate.length > 0) {
       const recordsSnake = toSnakeCase(toUpdate);
       
+      console.log('Sample record before snake_case:', toUpdate[0]);
+      console.log('Sample record after snake_case:', recordsSnake[0]);
+      
       console.log('Attempting to upsert (update) records...');
       const { data, error } = await supabase
         .from('daily_records')
@@ -585,6 +615,7 @@ export const dailyRecordService = {
       if (data) {
         results.push(...data);
         console.log('Successfully updated records:', data.length);
+        console.log('Sample updated record from DB:', data[0]);
       }
     }
     
