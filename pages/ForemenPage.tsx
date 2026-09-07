@@ -182,22 +182,26 @@ const ForemenPage: React.FC = () => {
         setIsStatementModalOpen(true);
     };
 
-    const handleSaveStatement = (data: { date: string; notes?: string; paidMonth: string }) => {
-        selectedForemanIds.forEach(foremanId => {
-            // حفظ معلومات الدفع (الشهر المدفوع)
-            addForemanPayment({ ...data, foremanId });
-            
-            // إضافة سجل في foremanExpenses من نوع 'statement' ليظهر في سجل الحركات
-            addForemanExpense({
-                foremanId,
-                date: data.date,
-                type: 'statement',
-                amount: 0,
-                description: data.notes || `تصفية حساب - ${data.paidMonth}`,
-                projectId: '', // كشف الحساب لا يرتبط بورشة معينة
-                sourcePaymentId: undefined
-            });
-        });
+    const handleSaveStatement = async (data: { date: string; notes?: string; paidMonth: string }) => {
+        // ننتظر كل الحفظات: كان forEach بدون await يطلق كتابات متزامنة تتسابق
+        // على نفس الحالة فتضيع بعض السجلات
+        await Promise.all(
+            selectedForemanIds.flatMap((foremanId: string) => [
+                // حفظ معلومات الدفع (الشهر المدفوع)
+                addForemanPayment({ ...data, foremanId }),
+
+                // إضافة سجل في foremanExpenses من نوع 'statement' ليظهر في سجل الحركات
+                addForemanExpense({
+                    foremanId,
+                    date: data.date,
+                    type: 'statement',
+                    amount: 0,
+                    description: data.notes || `تصفية حساب - ${data.paidMonth}`,
+                    projectId: '', // كشف الحساب لا يرتبط بورشة معينة
+                    sourcePaymentId: undefined
+                }),
+            ])
+        );
         setIsStatementModalOpen(false);
         setSelectedForemanIds([]);
     };

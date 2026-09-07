@@ -7,24 +7,30 @@ import Modal from '../components/Modal';
 import { Edit, Trash2, UserX, UserCheck } from 'lucide-react';
 
 const WorkersPage: React.FC = () => {
-  const { workers, addWorker, updateWorker, deleteWorker, projects } = useAppContext();
+  const { workers, addWorker, updateWorker, deleteWorker, projects, selectedKablanId } = useAppContext();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingWorker, setEditingWorker] = useState<Worker | null>(null);
   const [activeTab, setActiveTab] = useState<'active' | 'suspended'>('active');
-  const [migrationDone, setMigrationDone] = useState(false);
 
-  // Migration: إضافة salaryHistory للعمال القدامى - يعمل مرة واحدة فقط
+  // Migration: إضافة salaryHistory للعمال القدامى.
+  // العلامة محفوظة في localStorage حتى لا تتكرر في كل مرة تُفتح فيها الصفحة،
+  // والحفظ يتم بالتوازي بدل عامل تلو الآخر.
   useEffect(() => {
-    const runMigration = async () => {
-      if (migrationDone || workers.length === 0) return;
+    if (!selectedKablanId || workers.length === 0) return;
 
-      const workersNeedingMigration = workers.filter(w => !w.salaryHistory || w.salaryHistory.length === 0);
-      
-      if (workersNeedingMigration.length > 0) {
-        console.log(`🔄 Migration: Found ${workersNeedingMigration.length} workers without salary history`);
-        
-        try {
-          for (const worker of workersNeedingMigration) {
+    const migrationKey = `salaryHistoryMigrated:${selectedKablanId}`;
+    if (localStorage.getItem(migrationKey)) return;
+
+    const workersNeedingMigration = workers.filter((w: Worker) => !w.salaryHistory || w.salaryHistory.length === 0);
+    if (workersNeedingMigration.length === 0) {
+      localStorage.setItem(migrationKey, '1');
+      return;
+    }
+
+    const runMigration = async () => {
+      try {
+        await Promise.all(
+          workersNeedingMigration.map((worker: Worker) => {
             const initialSalaryEntry: SalaryHistoryEntry = {
               effectiveDate: '2020-01-01',
               paymentType: worker.paymentType,
@@ -36,22 +42,18 @@ const WorkersPage: React.FC = () => {
               overtimeRate: worker.overtimeRate || 0,
               notes: 'راتب أساسي (تم الترحيل تلقائياً)',
             };
-            
-            await updateWorker({
-              ...worker,
-              salaryHistory: [initialSalaryEntry],
-            });
-          }
-          console.log('✅ Migration completed');
-        } catch (err) {
-          console.error('❌ Migration failed:', err);
-        }
+
+            return updateWorker({ ...worker, salaryHistory: [initialSalaryEntry] });
+          })
+        );
+        localStorage.setItem(migrationKey, '1');
+      } catch (err) {
+        console.error('❌ Migration failed:', err);
       }
-      setMigrationDone(true);
     };
-    
+
     runMigration();
-  }, []); // يعمل مرة واحدة فقط عند التحميل
+  }, [selectedKablanId, workers.length]);
 
   const activeWorkers = workers.filter(w => w.status === 'active');
   const suspendedWorkers = workers.filter(w => w.status === 'suspended');

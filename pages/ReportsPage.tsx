@@ -1782,11 +1782,19 @@ export const ReportsPage: React.FC = () => {
         setComprehensiveReportSubType(null);
     }, [activeReport]);
 
-    const handleGenerateReport = (subType?: DailyReportSubType | WorkersReportSubType | ComprehensiveReportSubType) => {
+    const handleGenerateReport = async (subType?: DailyReportSubType | WorkersReportSubType | ComprehensiveReportSubType) => {
         const currentSubType = subType || (activeReport === 'daily' ? dailyReportSubType : activeReport === 'workers' ? workersReportSubType : comprehensiveReportSubType);
         if ((activeReport === 'daily' || activeReport === 'workers' || activeReport === 'comprehensive') && !currentSubType && !reportData) {
             // Do not generate if a sub-type is required but not selected for the first time
-            if (!reportData) return; 
+            if (!reportData) return;
+        }
+
+        // التطبيق يحمّل نافذة زمنية حديثة فقط؛ لو التقرير يطلب تاريخاً أقدم
+        // نجلب الفترة الناقصة أولاً حتى لا يخرج التقرير ناقصاً
+        let reportContext = context;
+        if (filters.dateFrom) {
+            const dailyRecords = await context.ensureDailyRecordsFrom(filters.dateFrom);
+            reportContext = { ...context, dailyRecords };
         }
 
         const reportGenerator = reportTypes.find(r => r.id === activeReport)?.generator;
@@ -1797,7 +1805,7 @@ export const ReportsPage: React.FC = () => {
                 showNotes: showNotes,
                 workerSummaryOptions: workerSummaryOptions,
             };
-            const data = reportGenerator(context, filters, options);
+            const data = reportGenerator(reportContext, filters, options);
             setReportData(data);
         }
     };

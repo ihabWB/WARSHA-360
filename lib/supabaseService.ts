@@ -485,159 +485,105 @@ export const subcontractorService = {
 // ============================================
 
 export const dailyRecordService = {
+  // Fetches the full history. Only needed for backups and all-time reports —
+  // the app normally loads a date window via getByDateRange.
   async getAll(kablanId: string) {
-    console.log('✅ PAGINATION VERSION - dailyRecordService.getAll called for kablanId:', kablanId);
-    
-    // Supabase has a hard limit of 1000 records per query
-    // We need to fetch all records using pagination
-    let allRecords: any[] = [];
+    // Supabase caps a single query at 1000 rows, so page through them.
+    const allRecords: any[] = [];
     let from = 0;
     const pageSize = 1000;
     let hasMore = true;
-    
+
     while (hasMore) {
-      const { data, error, count } = await supabase
+      const { data, error } = await supabase
         .from('daily_records')
-        .select('*', { count: 'exact' })
+        .select('*')
         .eq('kablan_id', kablanId)
         .order('date', { ascending: false })
         .range(from, from + pageSize - 1);
-      
+
       if (error) {
         console.error('Error fetching daily records:', error);
         throw error;
       }
-      
+
       if (data && data.length > 0) {
-        allRecords = [...allRecords, ...data];
-        console.log(`Fetched ${data.length} records (${from + 1} to ${from + data.length}). Total so far: ${allRecords.length}/${count}`);
+        allRecords.push(...data);
         from += pageSize;
-        hasMore = data.length === pageSize && allRecords.length < (count || 0);
+        hasMore = data.length === pageSize;
       } else {
         hasMore = false;
       }
     }
-    
-    console.log('✅ ALL Daily records fetched:', allRecords.length, 'records');
-    if (allRecords.length > 0) {
-      console.log('Sample fetched record (raw from DB):', allRecords[0]);
-      const converted = toCamelCase(allRecords);
-      console.log('Sample after toCamelCase:', converted[0]);
-      return converted as DailyRecord[];
-    }
-    return [];
+
+    return toCamelCase(allRecords) as DailyRecord[];
   },
 
   async getByDateRange(kablanId: string, startDate: string, endDate: string) {
-    const { data, error } = await supabase
-      .from('daily_records')
-      .select('*')
-      .eq('kablan_id', kablanId)
-      .gte('date', startDate)
-      .lte('date', endDate)
-      .order('date', { ascending: false });
-    
-    if (error) throw error;
-    return toCamelCase(data) as DailyRecord[];
+    // A window can still exceed the 1000-row cap, so page through it as well.
+    const allRecords: any[] = [];
+    let from = 0;
+    const pageSize = 1000;
+    let hasMore = true;
+
+    while (hasMore) {
+      const { data, error } = await supabase
+        .from('daily_records')
+        .select('*')
+        .eq('kablan_id', kablanId)
+        .gte('date', startDate)
+        .lte('date', endDate)
+        .order('date', { ascending: false })
+        .range(from, from + pageSize - 1);
+
+      if (error) throw error;
+
+      if (data && data.length > 0) {
+        allRecords.push(...data);
+        from += pageSize;
+        hasMore = data.length === pageSize;
+      } else {
+        hasMore = false;
+      }
+    }
+
+    return toCamelCase(allRecords) as DailyRecord[];
   },
 
+  // daily_records has UNIQUE(worker_id, date), so a single upsert handles both
+  // new and existing rows — no need to read them back first.
   async upsert(kablanId: string, records: DailyRecord[]) {
-    console.log('dailyRecordService.upsert called:', { kablanId, recordsCount: records.length, records });
-    
-    if (records.length === 0) return [];
-    
-    // Instead of delete+insert, we'll fetch existing and update/insert accordingly
-    const dates = [...new Set(records.map(r => r.date))];
-    console.log('Unique dates:', dates);
-    
-    // Fetch existing records for these dates and kablan
-    const { data: existingRecords, error: fetchError } = await supabase
-      .from('daily_records')
-      .select('*')
-      .eq('kablan_id', kablanId)
-      .in('date', dates);
-    
-    if (fetchError) {
-      console.error('Error fetching existing records:', fetchError);
-      throw fetchError;
-    }
-    
-    console.log('Existing records found:', existingRecords?.length || 0);
-    
-    const existingMap = new Map(
-      (existingRecords || []).map(r => [`${r.worker_id}-${r.date}`, r])
+    if (!records?.length) return [];
+
+    // Postgres rejects an upsert that touches the same conflict key twice
+    // ("cannot affect row a second time"), so keep only the last write per
+    // worker+date.
+    const deduped = Array.from(
+      new Map(records.map(r => [`${r.workerId}-${r.date}`, r])).values()
     );
-    
-    const toUpdate: any[] = [];
-    const toInsert: any[] = [];
-    
-    // Prepare records for update or insert
-    records.forEach(r => {
-      const { id, ...rest } = r;
-      const recordData = { ...rest, kablan_id: kablanId };
-      const key = `${r.workerId}-${r.date}`;
-      const existing = existingMap.get(key);
-      
-      if (existing) {
-        // Update existing record
-        toUpdate.push({ ...recordData, id: existing.id });
-      } else {
-        // Insert new record
-        toInsert.push(recordData);
-      }
-    });
-    
-    console.log('Records to update:', toUpdate.length);
-    console.log('Records to insert:', toInsert.length);
-    
-    const results: any[] = [];
-    
-    // Update existing records - use upsert with specific IDs
-    if (toUpdate.length > 0) {
-      const recordsSnake = toSnakeCase(toUpdate);
-      
-      console.log('Sample record before snake_case:', toUpdate[0]);
-      console.log('Sample record after snake_case:', recordsSnake[0]);
-      
-      console.log('Attempting to upsert (update) records...');
-      const { data, error } = await supabase
-        .from('daily_records')
-        .upsert(recordsSnake, { 
-          onConflict: 'id',
-          ignoreDuplicates: false 
-        })
-        .select();
-      
-      if (error) {
-        console.error('Error updating records:', error);
-        throw error;
-      }
-      if (data) {
-        results.push(...data);
-        console.log('Successfully updated records:', data.length);
-        console.log('Sample updated record from DB:', data[0]);
-      }
+
+    // Drop the client-side id: for new rows it is a synthetic `${workerId}-${date}`
+    // placeholder, and for existing rows the conflict target resolves the row.
+    // project_id is a nullable UUID — the table sends '' when no project is set.
+    const rows = toSnakeCase(
+      deduped.map(({ id, ...rest }) => ({
+        ...rest,
+        projectId: rest.projectId || null,
+        kablan_id: kablanId,
+      }))
+    );
+
+    const { data, error } = await supabase
+      .from('daily_records')
+      .upsert(rows, { onConflict: 'worker_id,date' })
+      .select();
+
+    if (error) {
+      console.error('Error saving daily records:', error);
+      throw error;
     }
-    
-    // Insert new records
-    if (toInsert.length > 0) {
-      const recordsSnake = toSnakeCase(toInsert);
-      
-      const { data, error } = await supabase
-        .from('daily_records')
-        .insert(recordsSnake)
-        .select();
-      
-      if (error) {
-        console.error('Error inserting daily records:', error);
-        throw error;
-      }
-      if (data) results.push(...data);
-      console.log('Successfully inserted records:', toInsert.length);
-    }
-    
-    console.log('Total records saved:', results.length);
-    return toCamelCase(results) as DailyRecord[];
+
+    return toCamelCase(data || []) as DailyRecord[];
   },
 
   async delete(id: string) {
@@ -812,6 +758,19 @@ export const paymentService = {
     
     if (error) throw error;
     return toCamelCase(data) as WorkerPayment;
+  },
+
+  async createWorkerPayments(kablanId: string, payments: Omit<WorkerPayment, 'id'>[]) {
+    if (!payments?.length) return [];
+    const rows = toSnakeCase(payments.map(p => ({ ...p, kablan_id: kablanId })));
+
+    const { data, error } = await supabase
+      .from('worker_payments')
+      .insert(rows)
+      .select();
+
+    if (error) throw error;
+    return toCamelCase(data || []) as WorkerPayment[];
   },
 
   async updateWorkerPayment(payment: WorkerPayment) {
@@ -1147,8 +1106,41 @@ export const chequeService = {
 // UNIFIED DATA LOADER
 // ============================================
 
+// How many months of daily records the app keeps in memory by default.
+// Older records are still in the database and are fetched on demand by
+// reports that ask for an earlier range.
+export const DAILY_RECORDS_WINDOW_MONTHS = 12;
+
+function windowStartDate(months: number): string {
+  const d = new Date();
+  d.setMonth(d.getMonth() - months);
+  d.setDate(1);
+  return d.toISOString().slice(0, 10);
+}
+
 export const dataService = {
-  async loadAllKablanData(kablanId: string): Promise<KablanData> {
+  // The earliest daily-record date loadAllKablanData fetches by default.
+  defaultWindowStart(): string {
+    return windowStartDate(DAILY_RECORDS_WINDOW_MONTHS);
+  },
+
+  /**
+   * Loads a kablan's data. Daily records are limited to a recent window by
+   * default — fetching the entire history made every save scale with the size
+   * of the archive. Pass allDailyRecords: true for backups / all-time reports.
+   */
+  async loadAllKablanData(
+    kablanId: string,
+    options: { allDailyRecords?: boolean } = {}
+  ): Promise<KablanData> {
+    const dailyRecordsPromise = options.allDailyRecords
+      ? dailyRecordService.getAll(kablanId)
+      : dailyRecordService.getByDateRange(
+          kablanId,
+          windowStartDate(DAILY_RECORDS_WINDOW_MONTHS),
+          '9999-12-31'
+        );
+
     const [
       workers,
       projects,
@@ -1168,7 +1160,7 @@ export const dataService = {
       projectService.getAll(kablanId),
       foremanService.getAll(kablanId),
       subcontractorService.getAll(kablanId),
-      dailyRecordService.getAll(kablanId),
+      dailyRecordsPromise,
       foremanExpenseService.getAll(kablanId),
       subcontractorTransactionService.getAll(kablanId),
       paymentService.getAllWorkerPayments(kablanId),

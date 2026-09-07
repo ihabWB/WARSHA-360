@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useRef } from 'react';
 import { useAppContext } from '../context/AppContext';
 import { usePermissions } from '../context/PermissionContext';
-import { Worker, Subcontractor, Foreman, WorkerPayment, ForemanPayment, SubcontractorPayment } from '../types';
+import { Worker, Subcontractor, Foreman, WorkerPayment, ForemanPayment, SubcontractorPayment, DailyRecord } from '../types';
 import Modal from '../components/Modal';
 import { Users, UserCheck, HardHat, PlusCircle, Edit, Trash2, Printer, ChevronUp, ChevronDown, BarChart3, Calendar } from 'lucide-react';
 
@@ -79,7 +79,7 @@ const getMonthName = (monthNum: string) => {
 
 // --- WORKERS PAYMENT SECTION ---
 const WorkersPaymentSection: React.FC = () => {
-    const { workers, workerPayments, addWorkerPayment, updateWorkerPayment, deleteWorkerPayment, dailyRecords, updateDailyRecords } = useAppContext();
+    const { workers, workerPayments, addWorkerPayments, updateWorkerPayments, deleteWorkerPaymentsBulk, dailyRecords } = useAppContext();
     const { hasPermission } = usePermissions();
     
     const canCreate = hasPermission('payments', 'create');
@@ -113,35 +113,31 @@ const WorkersPaymentSection: React.FC = () => {
 
     const sortedYears = useMemo(() => Object.keys(groupedByYear).sort().reverse(), [groupedByYear]);
 
-    // دالة لتحديث ملاحظات اليومية عند إضافة/تعديل دفعة قبض
-    const updateDailyRecordNotes = async (workerId: string, paymentDate: string, paidMonth: string, paymentNotes?: string) => {
-        const [year, month] = paidMonth.split('-');
-        const monthName = getMonthName(month);
-        let paymentNote = `قبض شهر ${monthName}`;
+    const buildPaymentNote = (paidMonth: string, paymentNotes?: string) => {
+        const [, month] = paidMonth.split('-');
+        let paymentNote = `قبض شهر ${getMonthName(month)}`;
         if (paymentNotes) {
             paymentNote += ` (${paymentNotes})`;
         }
+        return paymentNote;
+    };
 
-        // البحث عن سجل اليومية في تاريخ القبض
+    // يبني سجل اليومية بعد إضافة ملاحظة القبض — لا يحفظ، حتى نجمع كل
+    // التعديلات ونحفظها دفعة واحدة
+    const withPaymentNote = (workerId: string, paymentDate: string, paidMonth: string, paymentNotes?: string): DailyRecord | null => {
+        const paymentNote = buildPaymentNote(paidMonth, paymentNotes);
         const dailyRecord = dailyRecords.find(r => r.workerId === workerId && r.date === paymentDate);
-        
-        if (dailyRecord) {
-            // إضافة ملاحظة القبض إلى الملاحظات الموجودة
-            let updatedNotes = dailyRecord.notes || '';
-            
-            // التحقق من عدم وجود نفس الملاحظة مسبقاً
-            if (!updatedNotes.includes(paymentNote)) {
-                if (updatedNotes && updatedNotes.trim()) {
-                    updatedNotes = `${updatedNotes} | ${paymentNote}`;
-                } else {
-                    updatedNotes = paymentNote;
-                }
-                
-                // تحديث السجل
-                const updatedRecord = { ...dailyRecord, notes: updatedNotes };
-                await updateDailyRecords([updatedRecord]);
-            }
-        }
+        if (!dailyRecord) return null;
+
+        let updatedNotes = dailyRecord.notes || '';
+        // التحقق من عدم وجود نفس الملاحظة مسبقاً
+        if (updatedNotes.includes(paymentNote)) return null;
+
+        updatedNotes = updatedNotes.trim()
+            ? `${updatedNotes} | ${paymentNote}`
+            : paymentNote;
+
+        return { ...dailyRecord, notes: updatedNotes };
     };
 
     const handleAddForMonth = (year: string, month: string) => {
@@ -163,29 +159,39 @@ const WorkersPaymentSection: React.FC = () => {
 
     const handleSaveAdd = async (data: { workerId: string; date: string; notes?: string }[]) => {
         const paidMonth = `${selectedYear}-${selectedMonth}`;
+        // نجمع الدفعات وتعديلات اليوميات ثم نحفظها دفعة واحدة بدل رحلة لكل عامل
+        const recordUpdates: DailyRecord[] = [];
         for (const item of data) {
-            await addWorkerPayment({ ...item, paidMonth });
-            // تحديث ملاحظات اليومية
-            await updateDailyRecordNotes(item.workerId, item.date, paidMonth, item.notes);
+            const noted = withPaymentNote(item.workerId, item.date, paidMonth, item.notes);
+            if (noted) recordUpdates.push(noted);
         }
+
+        await addWorkerPayments(data.map(item => ({ ...item, paidMonth })), recordUpdates);
         setIsAddModalOpen(false);
     };
 
     const handleSaveEdit = async (data: { workerId: string; date: string; notes?: string }[]) => {
+        const paymentUpdates: WorkerPayment[] = [];
+        const recordUpdates: DailyRecord[] = [];
+
         for (const item of data) {
             const existingPayment = editingPayments.find(p => p.workerId === item.workerId);
-            if (existingPayment) {
-                // إذا تم تغيير التاريخ، إزالة الملاحظة من التاريخ القديم
-                if (existingPayment.date !== item.date) {
-                    await removeDailyRecordPaymentNote(item.workerId, existingPayment.date, existingPayment.paidMonth, existingPayment.notes);
-                }
-                
-                await updateWorkerPayment({ ...existingPayment, date: item.date, notes: item.notes });
-                
-                // إضافة/تحديث ملاحظة القبض في التاريخ الجديد
-                await updateDailyRecordNotes(item.workerId, item.date, existingPayment.paidMonth, item.notes);
+            if (!existingPayment) continue;
+
+            // إذا تم تغيير التاريخ، إزالة الملاحظة من التاريخ القديم
+            if (existingPayment.date !== item.date) {
+                const cleared = withoutPaymentNote(item.workerId, existingPayment.date, existingPayment.paidMonth, existingPayment.notes);
+                if (cleared) recordUpdates.push(cleared);
             }
+
+            paymentUpdates.push({ ...existingPayment, date: item.date, notes: item.notes });
+
+            // إضافة/تحديث ملاحظة القبض في التاريخ الجديد
+            const noted = withPaymentNote(item.workerId, item.date, existingPayment.paidMonth, item.notes);
+            if (noted) recordUpdates.push(noted);
         }
+
+        await updateWorkerPayments(paymentUpdates, recordUpdates);
         setIsEditModalOpen(false);
     };
 
@@ -199,46 +205,40 @@ const WorkersPaymentSection: React.FC = () => {
         });
     };
 
-    // دالة لإزالة ملاحظة القبض من اليومية
-    const removeDailyRecordPaymentNote = async (workerId: string, paymentDate: string, paidMonth: string, paymentNotes?: string) => {
-        const [year, month] = paidMonth.split('-');
-        const monthName = getMonthName(month);
-        let paymentNote = `قبض شهر ${monthName}`;
-        if (paymentNotes) {
-            paymentNote += ` (${paymentNotes})`;
+    // يبني سجل اليومية بعد إزالة ملاحظة القبض — لا يحفظ
+    const withoutPaymentNote = (workerId: string, paymentDate: string, paidMonth: string, paymentNotes?: string): DailyRecord | null => {
+        const paymentNote = buildPaymentNote(paidMonth, paymentNotes);
+        const dailyRecord = dailyRecords.find(r => r.workerId === workerId && r.date === paymentDate);
+        if (!dailyRecord?.notes) return null;
+
+        let updatedNotes = dailyRecord.notes;
+
+        // إزالة الملاحظة مع الفاصل إن وجد
+        if (updatedNotes.includes(` | ${paymentNote}`)) {
+            updatedNotes = updatedNotes.replace(` | ${paymentNote}`, '');
+        } else if (updatedNotes.includes(`${paymentNote} | `)) {
+            updatedNotes = updatedNotes.replace(`${paymentNote} | `, '');
+        } else if (updatedNotes === paymentNote) {
+            updatedNotes = '';
+        } else {
+            return null;
         }
 
-        const dailyRecord = dailyRecords.find(r => r.workerId === workerId && r.date === paymentDate);
-        
-        if (dailyRecord && dailyRecord.notes) {
-            // إزالة ملاحظة القبض من الملاحظات
-            let updatedNotes = dailyRecord.notes;
-            
-            // إزالة الملاحظة مع الفاصل إن وجد
-            if (updatedNotes.includes(` | ${paymentNote}`)) {
-                updatedNotes = updatedNotes.replace(` | ${paymentNote}`, '');
-            } else if (updatedNotes.includes(`${paymentNote} | `)) {
-                updatedNotes = updatedNotes.replace(`${paymentNote} | `, '');
-            } else if (updatedNotes === paymentNote) {
-                updatedNotes = '';
-            }
-            
-            // تحديث السجل
-            const updatedRecord = { ...dailyRecord, notes: updatedNotes };
-            await updateDailyRecords([updatedRecord]);
-        }
+        return { ...dailyRecord, notes: updatedNotes };
     };
 
     const confirmDelete = async () => {
         if (deleteInfo && deleteInfo.ids.length > 0) {
+            // إزالة ملاحظات القبض من اليوميات، ثم حذف كل الدفعات دفعة واحدة
+            const recordUpdates: DailyRecord[] = [];
             for (const id of deleteInfo.ids) {
                 const payment = workerPayments.find(p => p.id === id);
-                if (payment) {
-                    // إزالة ملاحظة القبض من اليومية
-                    await removeDailyRecordPaymentNote(payment.workerId, payment.date, payment.paidMonth, payment.notes);
-                }
-                await deleteWorkerPayment(id);
+                if (!payment) continue;
+                const cleared = withoutPaymentNote(payment.workerId, payment.date, payment.paidMonth, payment.notes);
+                if (cleared) recordUpdates.push(cleared);
             }
+
+            await deleteWorkerPaymentsBulk(deleteInfo.ids, recordUpdates);
             setDeleteInfo(null);
         }
     };

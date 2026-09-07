@@ -144,35 +144,26 @@ const DailyRecordsPage: React.FC = () => {
     }, [workerPayments]);
 
     useEffect(() => {
-        console.log('DailyRecordsPage useEffect triggered - dailyRecords count:', dailyRecords.length, 'selectedDate:', selectedDate);
-        
-        // Debug: Check sample records
-        const sampleRecords = dailyRecords.slice(0, 5);
-        console.log('Sample daily records:', sampleRecords.map(r => ({ date: r.date, workerId: r.workerId })));
-        
+        // مسحة واحدة على اليوميات لبناء سجلات اليوم المختار
+        const existingRecordsForDate = dailyRecords.filter(r => r.date === selectedDate);
+        const recordsByWorkerId = new Map<string, DailyRecord>(
+            existingRecordsForDate.map(r => [r.workerId, r])
+        );
+
         const sessionSaveCount = saveCountsByDate[selectedDate];
         if (sessionSaveCount !== undefined) {
             setSaveCount(sessionSaveCount);
         } else {
-            const dateHasBeenSavedBefore = dailyRecords.some(r => r.date === selectedDate);
-            const initialCount = dateHasBeenSavedBefore ? 1 : 0;
+            const initialCount = existingRecordsForDate.length > 0 ? 1 : 0;
             setSaveCount(initialCount);
             if (initialCount > 0) {
                  setSaveCountsByDate(prev => ({...prev, [selectedDate]: initialCount}));
             }
         }
-        
+
         const workersById = new Map<string, Worker>(workers.map(w => [w.id, w]));
 
-        const existingRecordsForDate = dailyRecords.filter(r => r.date === selectedDate);
-        console.log('Existing records for', selectedDate, ':', existingRecordsForDate.length);
-        
-        // Debug: Check dates around selected date
-        const datesInNov = dailyRecords.filter(r => r.date?.startsWith('2025-11')).map(r => r.date);
-        const uniqueDatesInNov = [...new Set(datesInNov)].sort();
-        console.log('Unique dates in November 2025:', uniqueDatesInNov);
-        
-        const workerIdsWithRecords = new Set(existingRecordsForDate.map(r => r.workerId));
+        const workerIdsWithRecords = new Set(recordsByWorkerId.keys());
 
         const activeWorkerIds = new Set(workers.filter(w => w.status === 'active').map(w => w.id));
 
@@ -183,7 +174,7 @@ const DailyRecordsPage: React.FC = () => {
             if (!worker) {
                 return null;
             }
-            const existingRecord = existingRecordsForDate.find(r => r.workerId === workerId);
+            const existingRecord = recordsByWorkerId.get(workerId);
             if (existingRecord) {
                 return { 
                     ...existingRecord, 
@@ -251,16 +242,22 @@ const DailyRecordsPage: React.FC = () => {
         );
     };
 
-    const handleSave = () => {
+    const handleSave = async () => {
         setIsSaving(true);
-        const validRecords = recordsForDate.filter(r => workers.some(w => w.id === r.workerId));
-        updateDailyRecords(selectedDate, validRecords);
-        setTimeout(() => {
-            setIsSaving(false);
+        // المؤشر يتبع الحفظ الفعلي بدل مؤقت ثابت مدته 500ms
+        try {
+            const workerIds = new Set(workers.map(w => w.id));
+            const validRecords = recordsForDate.filter(r => workerIds.has(r.workerId));
+            await updateDailyRecords(selectedDate, validRecords);
+
             const newCount = saveCount + 1;
             setSaveCount(newCount);
             setSaveCountsByDate(prev => ({...prev, [selectedDate]: newCount}));
-        }, 500);
+        } catch {
+            // الخطأ معروض من خلال حالة الخطأ في السياق
+        } finally {
+            setIsSaving(false);
+        }
     };
     
     const handleBulkApply = (workerIds: string[], data: BulkFormData) => {

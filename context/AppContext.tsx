@@ -1,4 +1,4 @@
-import React, { createContext, useContext, ReactNode, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, ReactNode, useState, useEffect, useCallback, useMemo } from 'react';
 import type { 
   AppState, 
   Kablan, 
@@ -125,6 +125,9 @@ interface AppContextType {
   
   // Daily record methods
   updateDailyRecords: (date: string, records: DailyRecord[]) => Promise<void>;
+  // يضمن تحميل اليوميات حتى تاريخ أقدم من النافذة المحمّلة (للتقارير القديمة)
+  // ويُرجع السجلات المدموجة لاستخدامها فوراً
+  ensureDailyRecordsFrom: (startDate: string) => Promise<DailyRecord[]>;
   mergeDailyRecord: (record: Partial<DailyRecord> & { workerId: string; date: string }) => Promise<void>;
   addPostMonthAdvance: (recordId: string, data: { date: string; amount: number; notes: string }) => Promise<void>;
   updatePostMonthAdvance: (recordId: string, pmaId: string, updates: any) => Promise<void>;
@@ -142,9 +145,13 @@ interface AppContextType {
   
   // Payment methods
   addWorkerPayment: (payment: Omit<WorkerPayment, 'id'>) => Promise<void>;
+  // Batch variants: save many payments plus their daily-record notes in one go
+  // instead of a round-trip per worker.
+  addWorkerPayments: (payments: Omit<WorkerPayment, 'id'>[], dailyRecordUpdates?: DailyRecord[]) => Promise<void>;
   updateWorkerPayment: (payment: WorkerPayment) => Promise<void>;
+  updateWorkerPayments: (payments: WorkerPayment[], dailyRecordUpdates?: DailyRecord[]) => Promise<void>;
   deleteWorkerPayment: (id: string) => Promise<void>;
-  deleteWorkerPaymentsBulk: (ids: string[]) => Promise<void>;
+  deleteWorkerPaymentsBulk: (ids: string[], dailyRecordUpdates?: DailyRecord[]) => Promise<void>;
   
   addSubcontractorPayment: (payment: Omit<SubcontractorPayment, 'id'>) => Promise<void>;
   updateSubcontractorPayment: (payment: SubcontractorPayment) => Promise<void>;
@@ -168,6 +175,7 @@ interface AppContextType {
   
   addPersonalAccountTransaction: (transaction: Omit<PersonalAccountTransaction, 'id'>) => Promise<void>;
   updatePersonalAccountTransaction: (transaction: PersonalAccountTransaction) => Promise<void>;
+  updatePersonalAccountTransactions: (transactions: PersonalAccountTransaction[]) => Promise<void>;
   deletePersonalAccountTransaction: (id: string) => Promise<void>;
   
   // Cheque methods
@@ -281,11 +289,23 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     });
   }, []);
 
+  // The earliest date whose daily records are currently in memory. The app
+  // loads a recent window on startup; anything older is fetched on demand.
+  const [dailyRecordsLoadedFrom, setDailyRecordsLoadedFrom] = useState<string | null>(null);
+
+  // 'YYYY-MM-DD' → the day before it, so a backfill never re-fetches what we have.
+  const previousDay = (date: string): string => {
+    const d = new Date(`${date}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() - 1);
+    return d.toISOString().slice(0, 10);
+  };
+
   // Load kablan data when selected
   useEffect(() => {
     const loadKablanData = async () => {
       if (!selectedKablanId) {
         setKablanData(emptyKablanData);
+        setDailyRecordsLoadedFrom(null);
         return;
       }
 
@@ -293,6 +313,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       try {
         const data = await dataService.loadAllKablanData(selectedKablanId);
         setKablanData(data);
+        setDailyRecordsLoadedFrom(dataService.defaultWindowStart());
         localStorage.setItem('selectedKablanId', selectedKablanId);
       } catch (err: any) {
         console.error('Error loading kablan data:', err);
@@ -305,23 +326,109 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     loadKablanData();
   }, [selectedKablanId]);
 
-  // Helper to refresh kablan data
+  /**
+   * Guarantees that daily records back to `startDate` are in memory, fetching
+   * and merging the older slice if the current window does not reach that far.
+   * Reports call this before rendering a user-chosen date range.
+   *
+   * Returns the records the caller should use, so a report can render straight
+   * away instead of waiting for the next render to see the merged state.
+   */
+  const ensureDailyRecordsFrom = useCallback(async (startDate: string): Promise<DailyRecord[]> => {
+    const current = kablanData.dailyRecords;
+    if (!selectedKablanId || !startDate) return current;
+    if (dailyRecordsLoadedFrom && startDate >= dailyRecordsLoadedFrom) return current;
+
+    const boundary = dailyRecordsLoadedFrom;
+    try {
+      // Fetch only the missing slice, up to the day before what we already have.
+      const older = boundary
+        ? await dailyRecordService.getByDateRange(selectedKablanId, startDate, previousDay(boundary))
+        : await dailyRecordService.getByDateRange(selectedKablanId, startDate, '9999-12-31');
+
+      const mergeOlder = (existing: DailyRecord[]) => {
+        const byKey = new Map(existing.map(r => [`${r.workerId}-${r.date}`, r]));
+        older.forEach(r => {
+          const key = `${r.workerId}-${r.date}`;
+          // Anything already in memory is at least as fresh as the archive.
+          if (!byKey.has(key)) byKey.set(key, r);
+        });
+        return Array.from(byKey.values());
+      };
+
+      // The functional update stays authoritative for state; the returned array
+      // is what this caller renders now.
+      setKablanData((prev: KablanData) => ({ ...prev, dailyRecords: mergeOlder(prev.dailyRecords) }));
+      setDailyRecordsLoadedFrom(startDate);
+      return mergeOlder(current);
+    } catch (err: any) {
+      console.error('Error loading older daily records:', err);
+      setError(err.message);
+      return current;
+    }
+  }, [selectedKablanId, dailyRecordsLoadedFrom, kablanData.dailyRecords]);
+
+  // Full reload of every table. Expensive — this is for the manual refresh
+  // action and after bulk imports, NOT for individual mutations. Ordinary
+  // writes patch local state with the row the server returns (see applyAdd /
+  // applyUpdate / applyDelete below).
   const refreshKablanData = useCallback(async () => {
     if (!selectedKablanId) return;
-    
-    console.log('refreshKablanData called for kablanId:', selectedKablanId);
+
     try {
       const data = await dataService.loadAllKablanData(selectedKablanId);
-      console.log('Kablan data refreshed successfully:', data);
-      console.log('Daily records in refreshed data:', data.dailyRecords?.length);
       setKablanData(data);
-      console.log('setKablanData called with', data.dailyRecords?.length, 'daily records');
+      // A refresh reloads only the default window, so any older backfill is gone.
+      setDailyRecordsLoadedFrom(dataService.defaultWindowStart());
     } catch (err: any) {
       console.error('Error refreshing kablan data:', err);
       setError(err.message);
       throw err;
     }
   }, [selectedKablanId]);
+
+  // Local-state patches applied after a successful write, so a save costs one
+  // network round-trip instead of reloading all 13 tables.
+  const applyAdd = useCallback((key: keyof KablanData, row: any) => {
+    setKablanData((prev: KablanData) => ({
+      ...prev,
+      [key]: [...(prev[key] as any[]), row],
+    }));
+  }, []);
+
+  const applyAddMany = useCallback((key: keyof KablanData, rows: any[]) => {
+    if (!rows.length) return;
+    setKablanData((prev: KablanData) => ({
+      ...prev,
+      [key]: [...(prev[key] as any[]), ...rows],
+    }));
+  }, []);
+
+  const applyUpdate = useCallback((key: keyof KablanData, row: any) => {
+    setKablanData((prev: KablanData) => ({
+      ...prev,
+      [key]: (prev[key] as any[]).map(r => (r.id === row.id ? row : r)),
+    }));
+  }, []);
+
+  const applyUpdateMany = useCallback((key: keyof KablanData, rows: any[]) => {
+    if (!rows.length) return;
+    setKablanData((prev: KablanData) => {
+      const byId = new Map(rows.map(r => [r.id, r]));
+      return {
+        ...prev,
+        [key]: (prev[key] as any[]).map(r => byId.get(r.id) ?? r),
+      };
+    });
+  }, []);
+
+  const applyDelete = useCallback((key: keyof KablanData, ids: string | string[]) => {
+    const idSet = new Set(Array.isArray(ids) ? ids : [ids]);
+    setKablanData((prev: KablanData) => ({
+      ...prev,
+      [key]: (prev[key] as any[]).filter(r => !idSet.has(r.id)),
+    }));
+  }, []);
 
   // Auth methods
   const login = useCallback(async (email: string, password: string) => {
@@ -437,354 +544,415 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const addWorker = useCallback(async (worker: Omit<Worker, 'id'>) => {
     if (!selectedKablanId) throw new Error('No kablan selected');
     try {
-      await workerService.create(selectedKablanId, worker);
-      await refreshKablanData();
+      const created = await workerService.create(selectedKablanId, worker);
+      // The insert only returns the workers row; salary history lives in its
+      // own table, so carry over what we just wrote.
+      applyAdd('workers', { ...created, salaryHistory: worker.salaryHistory || [] });
     } catch (err: any) {
       setError(err.message);
       throw err;
     }
-  }, [selectedKablanId, refreshKablanData]);
+  }, [selectedKablanId, applyAdd]);
 
   const updateWorker = useCallback(async (worker: Worker) => {
     try {
-      await workerService.update(worker);
-      await refreshKablanData();
+      const updated = await workerService.update(worker);
+      applyUpdate('workers', { ...updated, salaryHistory: worker.salaryHistory || [] });
     } catch (err: any) {
       setError(err.message);
       throw err;
     }
-  }, [refreshKablanData]);
+  }, [applyUpdate]);
 
   const deleteWorker = useCallback(async (id: string) => {
     try {
       await workerService.delete(id);
-      await refreshKablanData();
+      applyDelete('workers', id);
     } catch (err: any) {
       setError(err.message);
       throw err;
     }
-  }, [refreshKablanData]);
+  }, [applyDelete]);
 
   // Project methods
   const addProject = useCallback(async (project: Omit<Project, 'id' | 'status'>) => {
     if (!selectedKablanId) throw new Error('No kablan selected');
     try {
-      await projectService.create(selectedKablanId, project);
-      await refreshKablanData();
+      const created = await projectService.create(selectedKablanId, project);
+      applyAdd('projects', created);
     } catch (err: any) {
       setError(err.message);
       throw err;
     }
-  }, [selectedKablanId, refreshKablanData]);
+  }, [selectedKablanId, applyAdd]);
 
   const updateProject = useCallback(async (project: Project) => {
     try {
-      await projectService.update(project);
-      await refreshKablanData();
+      const updated = await projectService.update(project);
+      applyUpdate('projects', updated);
     } catch (err: any) {
       setError(err.message);
       throw err;
     }
-  }, [refreshKablanData]);
+  }, [applyUpdate]);
 
   const deleteProject = useCallback(async (id: string) => {
     try {
       await projectService.delete(id);
-      await refreshKablanData();
+      applyDelete('projects', id);
     } catch (err: any) {
       setError(err.message);
       throw err;
     }
-  }, [refreshKablanData]);
+  }, [applyDelete]);
 
   // Foreman methods
   const addForeman = useCallback(async (foreman: Omit<Foreman, 'id' | 'status'>) => {
     if (!selectedKablanId) throw new Error('No kablan selected');
     try {
-      await foremanService.create(selectedKablanId, foreman);
-      await refreshKablanData();
+      const created = await foremanService.create(selectedKablanId, foreman);
+      applyAdd('foremen', created);
     } catch (err: any) {
       setError(err.message);
       throw err;
     }
-  }, [selectedKablanId, refreshKablanData]);
+  }, [selectedKablanId, applyAdd]);
 
   const updateForeman = useCallback(async (foreman: Foreman) => {
     try {
-      await foremanService.update(foreman);
-      await refreshKablanData();
+      const updated = await foremanService.update(foreman);
+      applyUpdate('foremen', updated);
     } catch (err: any) {
       setError(err.message);
       throw err;
     }
-  }, [refreshKablanData]);
+  }, [applyUpdate]);
 
   const deleteForeman = useCallback(async (id: string) => {
     try {
       await foremanService.delete(id);
-      await refreshKablanData();
+      applyDelete('foremen', id);
     } catch (err: any) {
       setError(err.message);
       throw err;
     }
-  }, [refreshKablanData]);
+  }, [applyDelete]);
 
   // Subcontractor methods
   const addSubcontractor = useCallback(async (sub: Omit<Subcontractor, 'id' | 'status'>) => {
     if (!selectedKablanId) throw new Error('No kablan selected');
     try {
-      await subcontractorService.create(selectedKablanId, sub);
-      await refreshKablanData();
+      const created = await subcontractorService.create(selectedKablanId, sub);
+      applyAdd('subcontractors', created);
     } catch (err: any) {
       setError(err.message);
       throw err;
     }
-  }, [selectedKablanId, refreshKablanData]);
+  }, [selectedKablanId, applyAdd]);
 
   const updateSubcontractor = useCallback(async (sub: Subcontractor) => {
     try {
-      await subcontractorService.update(sub);
-      await refreshKablanData();
+      const updated = await subcontractorService.update(sub);
+      applyUpdate('subcontractors', updated);
     } catch (err: any) {
       setError(err.message);
       throw err;
     }
-  }, [refreshKablanData]);
+  }, [applyUpdate]);
 
   const deleteSubcontractor = useCallback(async (id: string) => {
     try {
       await subcontractorService.delete(id);
-      await refreshKablanData();
+      applyDelete('subcontractors', id);
     } catch (err: any) {
       setError(err.message);
       throw err;
     }
-  }, [refreshKablanData]);
+  }, [applyDelete]);
 
   // Daily record methods
+  // Merges the saved rows into local state by workerId+date. The server rows
+  // carry the real database ids, replacing the synthetic ones the table builds
+  // for workers that had no record yet.
+  const applySavedDailyRecords = useCallback((saved: DailyRecord[]) => {
+    if (!saved.length) return;
+    setKablanData((prev: KablanData) => {
+      const byKey = new Map(prev.dailyRecords.map(r => [`${r.workerId}-${r.date}`, r]));
+      saved.forEach(r => byKey.set(`${r.workerId}-${r.date}`, r));
+      return { ...prev, dailyRecords: Array.from(byKey.values()) };
+    });
+  }, []);
+
   const updateDailyRecords = useCallback(async (date: string, records: DailyRecord[]) => {
     if (!selectedKablanId) throw new Error('No kablan selected');
-    console.log('updateDailyRecords called:', { date, recordsCount: records.length, kablanId: selectedKablanId });
+    if (!records?.length) return;
     try {
-      const result = await dailyRecordService.upsert(selectedKablanId, records);
-      console.log('Daily records upserted successfully:', result);
-      await refreshKablanData();
+      const saved = await dailyRecordService.upsert(selectedKablanId, records);
+      applySavedDailyRecords(saved);
     } catch (err: any) {
       console.error('Error updating daily records:', err);
       setError(err.message);
       throw err;
     }
-  }, [selectedKablanId, refreshKablanData]);
+  }, [selectedKablanId, applySavedDailyRecords]);
 
-  const mergeDailyRecord = useCallback(async (record: Partial<DailyRecord> & { workerId: string; date: string }) => {
-    // TODO: Implement merge logic on the server or here
-    await refreshKablanData();
-  }, [refreshKablanData]);
+  // TODO: not implemented yet. These used to trigger a full reload of every
+  // table while writing nothing at all — left as genuine no-ops until the
+  // merge / post-month-advance features are built.
+  const mergeDailyRecord = useCallback(async (_record: Partial<DailyRecord> & { workerId: string; date: string }) => {
+    // no-op
+  }, []);
 
-  const addPostMonthAdvance = useCallback(async (recordId: string, data: { date: string; amount: number; notes: string }) => {
-    // TODO: Implement PMA logic
-    await refreshKablanData();
-  }, [refreshKablanData]);
+  const addPostMonthAdvance = useCallback(async (_recordId: string, _data: { date: string; amount: number; notes: string }) => {
+    // no-op
+  }, []);
 
-  const updatePostMonthAdvance = useCallback(async (recordId: string, pmaId: string, updates: any) => {
-    // TODO: Implement PMA update logic
-    await refreshKablanData();
-  }, [refreshKablanData]);
+  const updatePostMonthAdvance = useCallback(async (_recordId: string, _pmaId: string, _updates: any) => {
+    // no-op
+  }, []);
 
-  const deletePostMonthAdvance = useCallback(async (recordId: string, pmaId: string) => {
-    // TODO: Implement PMA delete logic
-    await refreshKablanData();
-  }, [refreshKablanData]);
+  const deletePostMonthAdvance = useCallback(async (_recordId: string, _pmaId: string) => {
+    // no-op
+  }, []);
 
   // Foreman expense methods
   const addForemanExpense = useCallback(async (expense: Omit<ForemanExpense, 'id'>) => {
     if (!selectedKablanId) throw new Error('No kablan selected');
     try {
-      await foremanExpenseService.create(selectedKablanId, expense);
-      await refreshKablanData();
+      const created = await foremanExpenseService.create(selectedKablanId, expense);
+      applyAdd('foremanExpenses', created);
     } catch (err: any) {
       setError(err.message);
       throw err;
     }
-  }, [selectedKablanId, refreshKablanData]);
+  }, [selectedKablanId, applyAdd]);
 
   const updateForemanExpense = useCallback(async (expense: ForemanExpense) => {
     try {
-      await foremanExpenseService.update(expense);
-      await refreshKablanData();
+      const updated = await foremanExpenseService.update(expense);
+      applyUpdate('foremanExpenses', updated);
     } catch (err: any) {
       setError(err.message);
       throw err;
     }
-  }, [refreshKablanData]);
+  }, [applyUpdate]);
 
   const deleteForemanExpense = useCallback(async (id: string) => {
     try {
       await foremanExpenseService.delete(id);
-      await refreshKablanData();
+      applyDelete('foremanExpenses', id);
     } catch (err: any) {
       setError(err.message);
       throw err;
     }
-  }, [refreshKablanData]);
+  }, [applyDelete]);
 
   // Subcontractor transaction methods
   const addSubcontractorTransaction = useCallback(async (trans: Omit<SubcontractorTransaction, 'id'>) => {
     if (!selectedKablanId) throw new Error('No kablan selected');
     try {
-      await subcontractorTransactionService.create(selectedKablanId, trans);
-      await refreshKablanData();
+      const created = await subcontractorTransactionService.create(selectedKablanId, trans);
+      applyAdd('subcontractorTransactions', created);
     } catch (err: any) {
       setError(err.message);
       throw err;
     }
-  }, [selectedKablanId, refreshKablanData]);
+  }, [selectedKablanId, applyAdd]);
 
   const updateSubcontractorTransaction = useCallback(async (trans: SubcontractorTransaction) => {
     try {
-      await subcontractorTransactionService.update(trans);
-      await refreshKablanData();
+      const updated = await subcontractorTransactionService.update(trans);
+      applyUpdate('subcontractorTransactions', updated);
     } catch (err: any) {
       setError(err.message);
       throw err;
     }
-  }, [refreshKablanData]);
+  }, [applyUpdate]);
 
   const deleteSubcontractorTransaction = useCallback(async (id: string) => {
     try {
       await subcontractorTransactionService.delete(id);
-      await refreshKablanData();
+      applyDelete('subcontractorTransactions', id);
     } catch (err: any) {
       setError(err.message);
       throw err;
     }
-  }, [refreshKablanData]);
+  }, [applyDelete]);
 
   // Payment methods - Workers
   const addWorkerPayment = useCallback(async (payment: Omit<WorkerPayment, 'id'>) => {
     if (!selectedKablanId) throw new Error('No kablan selected');
     try {
-      await paymentService.createWorkerPayment(selectedKablanId, payment);
-      await refreshKablanData();
+      const created = await paymentService.createWorkerPayment(selectedKablanId, payment);
+      applyAdd('workerPayments', created);
     } catch (err: any) {
       setError(err.message);
       throw err;
     }
-  }, [selectedKablanId, refreshKablanData]);
+  }, [selectedKablanId, applyAdd]);
+
+  // Saves a batch of worker payments and their matching daily-record notes in
+  // two round-trips total, rather than four per worker.
+  const addWorkerPayments = useCallback(async (
+    payments: Omit<WorkerPayment, 'id'>[],
+    dailyRecordUpdates: DailyRecord[] = []
+  ) => {
+    if (!selectedKablanId) throw new Error('No kablan selected');
+    if (!payments.length && !dailyRecordUpdates.length) return;
+    try {
+      const [created, savedRecords] = await Promise.all([
+        paymentService.createWorkerPayments(selectedKablanId, payments),
+        dailyRecordService.upsert(selectedKablanId, dailyRecordUpdates),
+      ]);
+      applyAddMany('workerPayments', created);
+      applySavedDailyRecords(savedRecords);
+    } catch (err: any) {
+      setError(err.message);
+      throw err;
+    }
+  }, [selectedKablanId, applyAddMany, applySavedDailyRecords]);
 
   const updateWorkerPayment = useCallback(async (payment: WorkerPayment) => {
     try {
-      await paymentService.updateWorkerPayment(payment);
-      await refreshKablanData();
+      const updated = await paymentService.updateWorkerPayment(payment);
+      applyUpdate('workerPayments', updated);
     } catch (err: any) {
       setError(err.message);
       throw err;
     }
-  }, [refreshKablanData]);
+  }, [applyUpdate]);
+
+  const updateWorkerPayments = useCallback(async (
+    payments: WorkerPayment[],
+    dailyRecordUpdates: DailyRecord[] = []
+  ) => {
+    if (!selectedKablanId) throw new Error('No kablan selected');
+    if (!payments.length && !dailyRecordUpdates.length) return;
+    try {
+      const [updated, savedRecords] = await Promise.all([
+        Promise.all(payments.map(p => paymentService.updateWorkerPayment(p))),
+        dailyRecordService.upsert(selectedKablanId, dailyRecordUpdates),
+      ]);
+      applyUpdateMany('workerPayments', updated);
+      applySavedDailyRecords(savedRecords);
+    } catch (err: any) {
+      setError(err.message);
+      throw err;
+    }
+  }, [selectedKablanId, applyUpdateMany, applySavedDailyRecords]);
 
   const deleteWorkerPayment = useCallback(async (id: string) => {
     try {
       await paymentService.deleteWorkerPayment(id);
-      await refreshKablanData();
+      applyDelete('workerPayments', id);
     } catch (err: any) {
       setError(err.message);
       throw err;
     }
-  }, [refreshKablanData]);
+  }, [applyDelete]);
 
-  const deleteWorkerPaymentsBulk = useCallback(async (ids: string[]) => {
+  const deleteWorkerPaymentsBulk = useCallback(async (
+    ids: string[],
+    dailyRecordUpdates: DailyRecord[] = []
+  ) => {
+    if (!selectedKablanId) throw new Error('No kablan selected');
+    if (!ids.length) return;
     try {
-      await paymentService.deleteWorkerPaymentsBulk(ids);
-      await refreshKablanData();
+      const [, savedRecords] = await Promise.all([
+        paymentService.deleteWorkerPaymentsBulk(ids),
+        dailyRecordService.upsert(selectedKablanId, dailyRecordUpdates),
+      ]);
+      applyDelete('workerPayments', ids);
+      applySavedDailyRecords(savedRecords);
     } catch (err: any) {
       setError(err.message);
       throw err;
     }
-  }, [refreshKablanData]);
+  }, [selectedKablanId, applyDelete, applySavedDailyRecords]);
 
   // Payment methods - Subcontractors
   const addSubcontractorPayment = useCallback(async (payment: Omit<SubcontractorPayment, 'id'>) => {
     if (!selectedKablanId) throw new Error('No kablan selected');
     try {
-      await paymentService.createSubcontractorPayment(selectedKablanId, payment);
-      await refreshKablanData();
+      const created = await paymentService.createSubcontractorPayment(selectedKablanId, payment);
+      applyAdd('subcontractorPayments', created);
     } catch (err: any) {
       setError(err.message);
       throw err;
     }
-  }, [selectedKablanId, refreshKablanData]);
+  }, [selectedKablanId, applyAdd]);
 
   const updateSubcontractorPayment = useCallback(async (payment: SubcontractorPayment) => {
     try {
-      await paymentService.updateSubcontractorPayment(payment);
-      await refreshKablanData();
+      const updated = await paymentService.updateSubcontractorPayment(payment);
+      applyUpdate('subcontractorPayments', updated);
     } catch (err: any) {
       setError(err.message);
       throw err;
     }
-  }, [refreshKablanData]);
+  }, [applyUpdate]);
 
   const deleteSubcontractorPayment = useCallback(async (id: string) => {
     try {
       await paymentService.deleteSubcontractorPayment(id);
-      await refreshKablanData();
+      applyDelete('subcontractorPayments', id);
     } catch (err: any) {
       setError(err.message);
       throw err;
     }
-  }, [refreshKablanData]);
+  }, [applyDelete]);
 
   const deleteSubcontractorPaymentsBulk = useCallback(async (ids: string[]) => {
     try {
       await paymentService.deleteSubcontractorPaymentsBulk(ids);
-      await refreshKablanData();
+      applyDelete('subcontractorPayments', ids);
     } catch (err: any) {
       setError(err.message);
       throw err;
     }
-  }, [refreshKablanData]);
+  }, [applyDelete]);
 
   // Payment methods - Foremen
   const addForemanPayment = useCallback(async (payment: Omit<ForemanPayment, 'id'>) => {
     if (!selectedKablanId) throw new Error('No kablan selected');
     try {
-      await paymentService.createForemanPayment(selectedKablanId, payment);
-      await refreshKablanData();
+      const created = await paymentService.createForemanPayment(selectedKablanId, payment);
+      applyAdd('foremanPayments', created);
     } catch (err: any) {
       setError(err.message);
       throw err;
     }
-  }, [selectedKablanId, refreshKablanData]);
+  }, [selectedKablanId, applyAdd]);
 
   const updateForemanPayment = useCallback(async (payment: ForemanPayment) => {
     try {
-      await paymentService.updateForemanPayment(payment);
-      await refreshKablanData();
+      const updated = await paymentService.updateForemanPayment(payment);
+      applyUpdate('foremanPayments', updated);
     } catch (err: any) {
       setError(err.message);
       throw err;
     }
-  }, [refreshKablanData]);
+  }, [applyUpdate]);
 
   const deleteForemanPayment = useCallback(async (id: string) => {
     try {
       await paymentService.deleteForemanPayment(id);
-      await refreshKablanData();
+      applyDelete('foremanPayments', id);
     } catch (err: any) {
       setError(err.message);
       throw err;
     }
-  }, [refreshKablanData]);
+  }, [applyDelete]);
 
   const deleteForemanPaymentsBulk = useCallback(async (ids: string[]) => {
     try {
       await paymentService.deleteForemanPaymentsBulk(ids);
-      await refreshKablanData();
+      applyDelete('foremanPayments', ids);
     } catch (err: any) {
       setError(err.message);
       throw err;
     }
-  }, [refreshKablanData]);
+  }, [applyDelete]);
 
   // UI methods
   const setPaymentsPageWorkerSelection = useCallback((ids: string[]) => {
@@ -812,98 +980,113 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const addPersonalAccount = useCallback(async (account: Omit<PersonalAccount, 'id'>) => {
     if (!selectedKablanId) throw new Error('No kablan selected');
     try {
-      await personalAccountService.create(selectedKablanId, account);
-      await refreshKablanData();
+      const created = await personalAccountService.create(selectedKablanId, account);
+      applyAdd('personalAccounts', created);
     } catch (err: any) {
       setError(err.message);
       throw err;
     }
-  }, [selectedKablanId, refreshKablanData]);
+  }, [selectedKablanId, applyAdd]);
 
   const updatePersonalAccount = useCallback(async (account: PersonalAccount) => {
     try {
-      await personalAccountService.update(account);
-      await refreshKablanData();
+      const updated = await personalAccountService.update(account);
+      applyUpdate('personalAccounts', updated);
     } catch (err: any) {
       setError(err.message);
       throw err;
     }
-  }, [refreshKablanData]);
+  }, [applyUpdate]);
 
   const deletePersonalAccount = useCallback(async (id: string) => {
     try {
       await personalAccountService.delete(id);
-      await refreshKablanData();
+      applyDelete('personalAccounts', id);
     } catch (err: any) {
       setError(err.message);
       throw err;
     }
-  }, [refreshKablanData]);
+  }, [applyDelete]);
 
   const addPersonalAccountTransaction = useCallback(async (transaction: Omit<PersonalAccountTransaction, 'id'>) => {
     if (!selectedKablanId) throw new Error('No kablan selected');
     try {
-      await personalAccountTransactionService.create(selectedKablanId, transaction);
-      await refreshKablanData();
+      const created = await personalAccountTransactionService.create(selectedKablanId, transaction);
+      applyAdd('personalAccountTransactions', created);
     } catch (err: any) {
       setError(err.message);
       throw err;
     }
-  }, [selectedKablanId, refreshKablanData]);
+  }, [selectedKablanId, applyAdd]);
 
   const updatePersonalAccountTransaction = useCallback(async (transaction: PersonalAccountTransaction) => {
     try {
-      await personalAccountTransactionService.update(transaction);
-      await refreshKablanData();
+      const updated = await personalAccountTransactionService.update(transaction);
+      applyUpdate('personalAccountTransactions', updated);
     } catch (err: any) {
       setError(err.message);
       throw err;
     }
-  }, [refreshKablanData]);
+  }, [applyUpdate]);
+
+  const updatePersonalAccountTransactions = useCallback(async (transactions: PersonalAccountTransaction[]) => {
+    if (!transactions.length) return;
+    try {
+      const updated = await Promise.all(
+        transactions.map(t => personalAccountTransactionService.update(t))
+      );
+      applyUpdateMany('personalAccountTransactions', updated);
+    } catch (err: any) {
+      setError(err.message);
+      throw err;
+    }
+  }, [applyUpdateMany]);
 
   const deletePersonalAccountTransaction = useCallback(async (id: string) => {
     try {
       await personalAccountTransactionService.delete(id);
-      await refreshKablanData();
+      applyDelete('personalAccountTransactions', id);
     } catch (err: any) {
       setError(err.message);
       throw err;
     }
-  }, [refreshKablanData]);
+  }, [applyDelete]);
 
   // Cheque methods
   const addCheque = useCallback(async (cheque: Omit<Cheque, 'id'>) => {
     if (!selectedKablanId) throw new Error('No kablan selected');
     try {
-      await chequeService.create(selectedKablanId, cheque);
-      await refreshKablanData();
+      const created = await chequeService.create(selectedKablanId, cheque);
+      applyAdd('cheques', created);
     } catch (err: any) {
       setError(err.message);
       throw err;
     }
-  }, [selectedKablanId, refreshKablanData]);
+  }, [selectedKablanId, applyAdd]);
 
   const updateCheque = useCallback(async (cheque: Cheque) => {
     try {
-      await chequeService.update(cheque);
-      await refreshKablanData();
+      const updated = await chequeService.update(cheque);
+      applyUpdate('cheques', updated);
     } catch (err: any) {
       setError(err.message);
       throw err;
     }
-  }, [refreshKablanData]);
+  }, [applyUpdate]);
 
   const deleteCheque = useCallback(async (id: string) => {
     try {
       await chequeService.delete(id);
-      await refreshKablanData();
+      applyDelete('cheques', id);
     } catch (err: any) {
       setError(err.message);
       throw err;
     }
-  }, [refreshKablanData]);
+  }, [applyDelete]);
 
-  const value: AppContextType = {
+  // Memoized: without this every provider render produced a new context object,
+  // re-rendering every consumer (Reports, the daily-records table, ...).
+  const value: AppContextType = useMemo(() => ({
     // Auth state
     isAuthenticated: !!user,
     user,
@@ -955,6 +1138,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     
     // Daily record methods
     updateDailyRecords,
+    ensureDailyRecordsFrom,
     mergeDailyRecord,
     addPostMonthAdvance,
     updatePostMonthAdvance,
@@ -972,7 +1156,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     
     // Payment methods
     addWorkerPayment,
+    addWorkerPayments,
     updateWorkerPayment,
+    updateWorkerPayments,
     deleteWorkerPayment,
     deleteWorkerPaymentsBulk,
     
@@ -1001,13 +1187,37 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     
     addPersonalAccountTransaction,
     updatePersonalAccountTransaction,
+    updatePersonalAccountTransactions,
     deletePersonalAccountTransaction,
-    
+
     // Cheque methods
     addCheque,
     updateCheque,
     deleteCheque,
-  };
+  }), [
+    user, loading, error, kablans, selectedKablanId, kablanData, uiState, theme,
+    login, logout, signUp,
+    addKablan, updateKablan, deleteKablan, selectKablan, deselectKablan, refreshKablanData,
+    addWorker, updateWorker, deleteWorker,
+    addProject, updateProject, deleteProject,
+    addForeman, updateForeman, deleteForeman,
+    addSubcontractor, updateSubcontractor, deleteSubcontractor,
+    updateDailyRecords, ensureDailyRecordsFrom, mergeDailyRecord,
+    addPostMonthAdvance, updatePostMonthAdvance, deletePostMonthAdvance,
+    addForemanExpense, updateForemanExpense, deleteForemanExpense,
+    addSubcontractorTransaction, updateSubcontractorTransaction, deleteSubcontractorTransaction,
+    addWorkerPayment, addWorkerPayments, updateWorkerPayment, updateWorkerPayments,
+    deleteWorkerPayment, deleteWorkerPaymentsBulk,
+    addSubcontractorPayment, updateSubcontractorPayment,
+    deleteSubcontractorPayment, deleteSubcontractorPaymentsBulk,
+    addForemanPayment, updateForemanPayment, deleteForemanPayment, deleteForemanPaymentsBulk,
+    setPaymentsPageWorkerSelection, setPaymentsPageSubcontractorSelection, setPaymentsPageForemanSelection,
+    toggleTheme,
+    addPersonalAccount, updatePersonalAccount, deletePersonalAccount,
+    addPersonalAccountTransaction, updatePersonalAccountTransaction,
+    updatePersonalAccountTransactions, deletePersonalAccountTransaction,
+    addCheque, updateCheque, deleteCheque,
+  ]);
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 };

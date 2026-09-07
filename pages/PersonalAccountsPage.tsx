@@ -27,7 +27,8 @@ const PersonalAccountsPage: React.FC = () => {
 const PersonalAccountsListSection: React.FC = () => {
     const { 
         personalAccounts, addPersonalAccount, updatePersonalAccount, deletePersonalAccount,
-        personalAccountTransactions, addPersonalAccountTransaction, updatePersonalAccountTransaction, deletePersonalAccountTransaction
+        personalAccountTransactions, addPersonalAccountTransaction, updatePersonalAccountTransaction,
+        updatePersonalAccountTransactions, deletePersonalAccountTransaction
     } = useAppContext();
     const { hasPermission } = usePermissions();
     
@@ -94,7 +95,7 @@ const PersonalAccountsListSection: React.FC = () => {
     };
 
     const handleReconciliation = () => { setIsHistoryModalOpen(false); setIsReconciliationModalOpen(true); };
-    const handleConfirmReconciliation = (excludedChequeIds: string[], isManual: boolean, manualBalances: { ils: number, jod: number }) => {
+    const handleConfirmReconciliation = async (excludedChequeIds: string[], isManual: boolean, manualBalances: { ils: number, jod: number }) => {
         if (!selectedAccount) return;
         
         const partyAname = selectedAccount.parties[0];
@@ -150,11 +151,14 @@ const PersonalAccountsListSection: React.FC = () => {
         const lastReconciliation = relevantTransactions.filter(t => t.transactionType === 'reconciliation').sort((a,b) => b.date.localeCompare(a.date))[0];
         const transactionsForUpdate = lastReconciliation ? relevantTransactions.filter(t => t.date >= lastReconciliation.date) : relevantTransactions;
 
-        transactionsForUpdate.forEach(t => {
-            if (t.paymentMethod === 'cheque' && t.chequeStatus === 'pending' && !excludedChequeIds.includes(t.id)) {
-                updatePersonalAccountTransaction({ ...t, chequeStatus: 'cashed' });
-            }
-        });
+        // دفعة واحدة بانتظار: كان forEach بدون await يطلق كتابات متسابقة
+        const chequesToCash = transactionsForUpdate.filter(
+            (t: PersonalAccountTransaction) =>
+                t.paymentMethod === 'cheque' && t.chequeStatus === 'pending' && !excludedChequeIds.includes(t.id)
+        );
+        await updatePersonalAccountTransactions(
+            chequesToCash.map((t: PersonalAccountTransaction) => ({ ...t, chequeStatus: 'cashed' as const }))
+        );
 
         setIsReconciliationModalOpen(false);
         setIsHistoryModalOpen(true);
