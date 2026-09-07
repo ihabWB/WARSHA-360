@@ -125,9 +125,6 @@ interface AppContextType {
   
   // Daily record methods
   updateDailyRecords: (date: string, records: DailyRecord[]) => Promise<void>;
-  // يضمن تحميل اليوميات حتى تاريخ أقدم من النافذة المحمّلة (للتقارير القديمة)
-  // ويُرجع السجلات المدموجة لاستخدامها فوراً
-  ensureDailyRecordsFrom: (startDate: string) => Promise<DailyRecord[]>;
   mergeDailyRecord: (record: Partial<DailyRecord> & { workerId: string; date: string }) => Promise<void>;
   addPostMonthAdvance: (recordId: string, data: { date: string; amount: number; notes: string }) => Promise<void>;
   updatePostMonthAdvance: (recordId: string, pmaId: string, updates: any) => Promise<void>;
@@ -289,23 +286,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     });
   }, []);
 
-  // The earliest date whose daily records are currently in memory. The app
-  // loads a recent window on startup; anything older is fetched on demand.
-  const [dailyRecordsLoadedFrom, setDailyRecordsLoadedFrom] = useState<string | null>(null);
-
-  // 'YYYY-MM-DD' → the day before it, so a backfill never re-fetches what we have.
-  const previousDay = (date: string): string => {
-    const d = new Date(`${date}T00:00:00Z`);
-    d.setUTCDate(d.getUTCDate() - 1);
-    return d.toISOString().slice(0, 10);
-  };
-
   // Load kablan data when selected
   useEffect(() => {
     const loadKablanData = async () => {
       if (!selectedKablanId) {
         setKablanData(emptyKablanData);
-        setDailyRecordsLoadedFrom(null);
         return;
       }
 
@@ -313,7 +298,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       try {
         const data = await dataService.loadAllKablanData(selectedKablanId);
         setKablanData(data);
-        setDailyRecordsLoadedFrom(dataService.defaultWindowStart());
         localStorage.setItem('selectedKablanId', selectedKablanId);
       } catch (err: any) {
         console.error('Error loading kablan data:', err);
@@ -326,48 +310,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     loadKablanData();
   }, [selectedKablanId]);
 
-  /**
-   * Guarantees that daily records back to `startDate` are in memory, fetching
-   * and merging the older slice if the current window does not reach that far.
-   * Reports call this before rendering a user-chosen date range.
-   *
-   * Returns the records the caller should use, so a report can render straight
-   * away instead of waiting for the next render to see the merged state.
-   */
-  const ensureDailyRecordsFrom = useCallback(async (startDate: string): Promise<DailyRecord[]> => {
-    const current = kablanData.dailyRecords;
-    if (!selectedKablanId || !startDate) return current;
-    if (dailyRecordsLoadedFrom && startDate >= dailyRecordsLoadedFrom) return current;
-
-    const boundary = dailyRecordsLoadedFrom;
-    try {
-      // Fetch only the missing slice, up to the day before what we already have.
-      const older = boundary
-        ? await dailyRecordService.getByDateRange(selectedKablanId, startDate, previousDay(boundary))
-        : await dailyRecordService.getByDateRange(selectedKablanId, startDate, '9999-12-31');
-
-      const mergeOlder = (existing: DailyRecord[]) => {
-        const byKey = new Map(existing.map(r => [`${r.workerId}-${r.date}`, r]));
-        older.forEach(r => {
-          const key = `${r.workerId}-${r.date}`;
-          // Anything already in memory is at least as fresh as the archive.
-          if (!byKey.has(key)) byKey.set(key, r);
-        });
-        return Array.from(byKey.values());
-      };
-
-      // The functional update stays authoritative for state; the returned array
-      // is what this caller renders now.
-      setKablanData((prev: KablanData) => ({ ...prev, dailyRecords: mergeOlder(prev.dailyRecords) }));
-      setDailyRecordsLoadedFrom(startDate);
-      return mergeOlder(current);
-    } catch (err: any) {
-      console.error('Error loading older daily records:', err);
-      setError(err.message);
-      return current;
-    }
-  }, [selectedKablanId, dailyRecordsLoadedFrom, kablanData.dailyRecords]);
-
   // Full reload of every table. Expensive — this is for the manual refresh
   // action and after bulk imports, NOT for individual mutations. Ordinary
   // writes patch local state with the row the server returns (see applyAdd /
@@ -378,8 +320,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     try {
       const data = await dataService.loadAllKablanData(selectedKablanId);
       setKablanData(data);
-      // A refresh reloads only the default window, so any older backfill is gone.
-      setDailyRecordsLoadedFrom(dataService.defaultWindowStart());
     } catch (err: any) {
       console.error('Error refreshing kablan data:', err);
       setError(err.message);
@@ -1138,7 +1078,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     
     // Daily record methods
     updateDailyRecords,
-    ensureDailyRecordsFrom,
     mergeDailyRecord,
     addPostMonthAdvance,
     updatePostMonthAdvance,
@@ -1202,7 +1141,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     addProject, updateProject, deleteProject,
     addForeman, updateForeman, deleteForeman,
     addSubcontractor, updateSubcontractor, deleteSubcontractor,
-    updateDailyRecords, ensureDailyRecordsFrom, mergeDailyRecord,
+    updateDailyRecords, mergeDailyRecord,
     addPostMonthAdvance, updatePostMonthAdvance, deletePostMonthAdvance,
     addForemanExpense, updateForemanExpense, deleteForemanExpense,
     addSubcontractorTransaction, updateSubcontractorTransaction, deleteSubcontractorTransaction,

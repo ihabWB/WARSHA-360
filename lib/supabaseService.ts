@@ -1106,41 +1106,17 @@ export const chequeService = {
 // UNIFIED DATA LOADER
 // ============================================
 
-// How many months of daily records the app keeps in memory by default.
-// Older records are still in the database and are fetched on demand by
-// reports that ask for an earlier range.
-export const DAILY_RECORDS_WINDOW_MONTHS = 12;
-
-function windowStartDate(months: number): string {
-  const d = new Date();
-  d.setMonth(d.getMonth() - months);
-  d.setDate(1);
-  return d.toISOString().slice(0, 10);
-}
-
 export const dataService = {
-  // The earliest daily-record date loadAllKablanData fetches by default.
-  defaultWindowStart(): string {
-    return windowStartDate(DAILY_RECORDS_WINDOW_MONTHS);
-  },
-
   /**
-   * Loads a kablan's data. Daily records are limited to a recent window by
-   * default — fetching the entire history made every save scale with the size
-   * of the archive. Pass allDailyRecords: true for backups / all-time reports.
+   * Loads all of a kablan's data.
+   *
+   * Daily records are loaded in full on purpose: the dashboard offers five
+   * years of history, reports take a free date range, and the daily-records
+   * screen can open any past date — and saving a date whose records were not
+   * loaded would overwrite real history with blank defaults. Save speed comes
+   * from not refetching after every write, not from shrinking this load.
    */
-  async loadAllKablanData(
-    kablanId: string,
-    options: { allDailyRecords?: boolean } = {}
-  ): Promise<KablanData> {
-    const dailyRecordsPromise = options.allDailyRecords
-      ? dailyRecordService.getAll(kablanId)
-      : dailyRecordService.getByDateRange(
-          kablanId,
-          windowStartDate(DAILY_RECORDS_WINDOW_MONTHS),
-          '9999-12-31'
-        );
-
+  async loadAllKablanData(kablanId: string): Promise<KablanData> {
     const [
       workers,
       projects,
@@ -1160,7 +1136,7 @@ export const dataService = {
       projectService.getAll(kablanId),
       foremanService.getAll(kablanId),
       subcontractorService.getAll(kablanId),
-      dailyRecordsPromise,
+      dailyRecordService.getAll(kablanId),
       foremanExpenseService.getAll(kablanId),
       subcontractorTransactionService.getAll(kablanId),
       paymentService.getAllWorkerPayments(kablanId),

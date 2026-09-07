@@ -75,8 +75,7 @@ const TABLE_LABELS: Record<string, string> = {
 // ============================================
 
 export async function buildBackup(kablanId: string, kablan: Kablan): Promise<WarshatkomBackup> {
-  // A backup must contain the entire history, not the app's recent window.
-  const data = await dataService.loadAllKablanData(kablanId, { allDailyRecords: true });
+  const data = await dataService.loadAllKablanData(kablanId);
 
   return {
     schemaVersion: BACKUP_SCHEMA_VERSION,
